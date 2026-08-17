@@ -5,7 +5,7 @@ import aiosqlite
 
 
 class DatabaseManager:
-    """Telegram videolarının indirilme ve yüklenme durumlarını takip eden SQLite yöneticisi."""
+    """Telegram video ve fotoğraflarının indirilme ve yüklenme durumlarını takip eden SQLite yöneticisi."""
 
     def __init__(self, db_path: Union[str, Path] = "syncer_database.db"):
         self.db_path = str(db_path)
@@ -23,6 +23,7 @@ class DatabaseManager:
                         source_msg_id INTEGER NOT NULL,
                         file_unique_id TEXT,
                         file_name TEXT,
+                        media_type TEXT DEFAULT 'video',
                         file_size INTEGER DEFAULT 0,
                         duration INTEGER DEFAULT 0,
                         status TEXT NOT NULL DEFAULT 'PENDING',
@@ -38,6 +39,13 @@ class DatabaseManager:
                     )
                     """
                 )
+                
+                # Tablo önceden oluşturulmuşsa media_type sütununu ekle
+                try:
+                    await db.execute("ALTER TABLE processed_videos ADD COLUMN media_type TEXT DEFAULT 'video'")
+                except Exception:
+                    pass
+
                 await db.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_chat_msg 
@@ -61,7 +69,7 @@ class DatabaseManager:
     async def is_already_completed(
         self, source_chat_id: Union[int, str], source_msg_id: int, file_unique_id: Optional[str] = None
     ) -> bool:
-        """Videonun daha önce başarıyla tamamlanıp tamamlanmadığını kontrol eder."""
+        """Medyanın daha önce başarıyla tamamlanıp tamamlanmadığını kontrol eder."""
         chat_id_str = str(source_chat_id)
         async with aiosqlite.connect(self.db_path) as db:
             # 1. Kaynak kanal ve mesaj ID'sine göre kontrol
@@ -115,6 +123,7 @@ class DatabaseManager:
         source_msg_id: int,
         file_unique_id: Optional[str] = None,
         file_name: Optional[str] = None,
+        media_type: str = "video",
         file_size: int = 0,
         duration: int = 0,
         status: str = "PENDING",
@@ -127,17 +136,18 @@ class DatabaseManager:
                     """
                     INSERT INTO processed_videos (
                         source_chat_id, source_msg_id, file_unique_id,
-                        file_name, file_size, duration, status, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        file_name, media_type, file_size, duration, status, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(source_chat_id, source_msg_id) DO UPDATE SET
                         file_unique_id = COALESCE(excluded.file_unique_id, processed_videos.file_unique_id),
                         file_name = COALESCE(excluded.file_name, processed_videos.file_name),
+                        media_type = COALESCE(excluded.media_type, processed_videos.media_type),
                         file_size = CASE WHEN excluded.file_size > 0 THEN excluded.file_size ELSE processed_videos.file_size END,
                         duration = CASE WHEN excluded.duration > 0 THEN excluded.duration ELSE processed_videos.duration END,
                         status = excluded.status,
                         updated_at = CURRENT_TIMESTAMP
                     """,
-                    (chat_id_str, source_msg_id, file_unique_id, file_name, file_size, duration, status),
+                    (chat_id_str, source_msg_id, file_unique_id, file_name, media_type, file_size, duration, status),
                 )
                 await db.commit()
 

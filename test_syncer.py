@@ -23,12 +23,13 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
             shutil.rmtree(self.test_dir, ignore_errors=True)
 
     async def test_database_lifecycle_and_duplicate_prevention(self):
-        # 1. Kayıt oluştur
+        # 1. Kayıt oluştur (Video)
         await self.db.register_or_update(
             source_chat_id="-1001234567890",
             source_msg_id=42,
             file_unique_id="unique_vid_999",
             file_name="sample_video.mp4",
+            media_type="video",
             file_size=10485760,  # 10 MB
             duration=120,
             status="PENDING",
@@ -37,12 +38,29 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
         rec = await self.db.get_record("-1001234567890", 42)
         self.assertIsNotNone(rec)
         self.assertEqual(rec["status"], "PENDING")
+        self.assertEqual(rec["media_type"], "video")
         self.assertEqual(rec["file_size"], 10485760)
 
-        # 2. Tamamlandı kontrolü (Henüz tamamlanmadı)
+        # 2. Kayıt oluştur (Fotoğraf)
+        await self.db.register_or_update(
+            source_chat_id="-1001234567890",
+            source_msg_id=43,
+            file_unique_id="unique_photo_888",
+            file_name="sample_photo.jpg",
+            media_type="photo",
+            file_size=204800,
+            duration=0,
+            status="PENDING",
+        )
+
+        photo_rec = await self.db.get_record("-1001234567890", 43)
+        self.assertIsNotNone(photo_rec)
+        self.assertEqual(photo_rec["media_type"], "photo")
+
+        # 3. Tamamlandı kontrolü (Henüz tamamlanmadı)
         self.assertFalse(await self.db.is_already_completed("-1001234567890", 42))
 
-        # 3. Durumu COMPLETED yap
+        # 4. Durumu COMPLETED yap
         await self.db.update_status(
             source_chat_id="-1001234567890",
             source_msg_id=42,
@@ -52,15 +70,15 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
             target_topic_id=5,
         )
 
-        # 4. Artık tamamlandı olarak dönmeli
+        # 5. Artık tamamlandı olarak dönmeli
         self.assertTrue(await self.db.is_already_completed("-1001234567890", 42))
         # Unique ID ile de mükerrer kontrolü çalışmalı
         self.assertTrue(await self.db.is_already_completed("-1009999999999", 1, file_unique_id="unique_vid_999"))
 
     async def test_database_stats(self):
-        await self.db.register_or_update("-1001", 1, "uid1", "v1.mp4", 5000, 10, "COMPLETED")
+        await self.db.register_or_update("-1001", 1, "uid1", "v1.mp4", "video", 5000, 10, "COMPLETED")
         await self.db.update_status("-1001", 1, "COMPLETED")
-        await self.db.register_or_update("-1001", 2, "uid2", "v2.mp4", 7000, 10, "FAILED")
+        await self.db.register_or_update("-1001", 2, "uid2", "v2.mp4", "video", 7000, 10, "FAILED")
         await self.db.update_status("-1001", 2, "FAILED", error_message="Network error", increment_retry=True)
 
         stats = await self.db.get_stats()

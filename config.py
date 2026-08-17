@@ -14,7 +14,7 @@ def _str_to_bool(value: str) -> bool:
 
 def _normalize_topic_id(raw_id: Union[int, str]) -> int:
     """
-    Telegram Web URL'lerinden gelen 64-bit topic ID'lerini (örn: 4294973210 veya thread=4294973210)
+    Telegram Web URL'lerinden gelen 64-bit topic ID'lerini (örn: thread=12345678)
     ve standart topic ID'lerini (örn: 5914) normalize eder.
     """
     try:
@@ -35,7 +35,7 @@ def _normalize_topic_id(raw_id: Union[int, str]) -> int:
 def _format_channel_id(item: str) -> Union[int, str]:
     """
     Kanal kimliklerini çözümler. Telegram Web'den gelen eksik -100 prefixlerini otomatik tamamlar.
-    Örn: -2599602307 veya 2599602307 -> -1002599602307
+    Örn: -1234567890 veya 1234567890 -> -1001234567890
     """
     item = str(item).strip()
     if not item:
@@ -97,6 +97,11 @@ class AppConfig:
     api_hash: str = field(default_factory=lambda: os.getenv("TELEGRAM_API_HASH", ""))
     phone: str = field(default_factory=lambda: os.getenv("TELEGRAM_PHONE", ""))
     session_name: str = field(default_factory=lambda: os.getenv("SESSION_NAME", "telegram_syncer_session"))
+
+    # Medya Türü: all (video ve fotoğraf), video (yalnızca video), photo (yalnızca fotoğraf)
+    media_type: str = field(
+        default_factory=lambda: os.getenv("MEDIA_TYPE", "all").lower().strip()
+    )
 
     # Kanallar
     source_channels: List[Union[int, str]] = field(

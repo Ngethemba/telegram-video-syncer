@@ -15,52 +15,54 @@ from channel_helper import ChannelHelper
 
 
 class VideoDownloader:
-    """Telegram mesajlarındaki videoları güvenli, yeniden denemeli ve ilerleme çubuklu indiren sınıf."""
+    """Telegram mesajlarındaki video ve fotoğrafları güvenli, yeniden denemeli ve ilerleme çubuklu indiren sınıf."""
 
     def __init__(self, client: TelegramClient, db: DatabaseManager):
         self.client = client
         self.db = db
 
-    async def download_video(
+    async def download_media(
         self,
         message: types.Message,
         source_chat_id: Union[int, str],
+        allowed_media_type: str = "all",
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Optional[Path]:
         """
-        Belirtilen mesajdaki videoyu indirir.
+        Belirtilen mesajdaki video veya fotoğrafı indirir.
         Korumalı/yasaklı kanallarda dahi MTProto üzerinden veriyi parça parça çekerek kaydeder.
         """
-        video_info = ChannelHelper.extract_video_info(message)
-        if not video_info:
+        media_info = ChannelHelper.extract_media_info(message, allowed_media_type=allowed_media_type)
+        if not media_info:
             return None
 
-        file_size = video_info["file_size"]
-        duration = video_info["duration"]
-        file_unique_id = video_info["file_unique_id"]
+        media_type = media_info["media_type"]
+        file_size = media_info["file_size"]
+        duration = media_info["duration"]
+        file_unique_id = media_info["file_unique_id"]
 
         # Filtre Kontrolleri: Boyut limiti
-        if config.max_file_size_mb > 0:
+        if config.max_file_size_mb > 0 and file_size > 0:
             max_bytes = config.max_file_size_mb * 1024 * 1024
             if file_size > max_bytes:
-                print(f"⚠️ [Atlandı] Video boyutu ({file_size / (1024*1024):.1f} MB) belirlenen limitten ({config.max_file_size_mb} MB) büyük.")
+                print(f"⚠️ [Atlandı] Medya boyutu ({file_size / (1024*1024):.1f} MB) belirlenen limitten ({config.max_file_size_mb} MB) büyük.")
                 await self.db.register_or_update(
                     source_chat_id, message.id, file_unique_id,
-                    video_info["file_name"], file_size, duration, status="SKIPPED"
+                    media_info["file_name"], media_type, file_size, duration, status="SKIPPED"
                 )
                 return None
 
-        # Filtre Kontrolleri: Süre limiti
-        if config.min_duration_seconds > 0 and duration > 0 and duration < config.min_duration_seconds:
+        # Filtre Kontrolleri: Süre limiti (yalnızca videolar için)
+        if media_type == "video" and config.min_duration_seconds > 0 and duration > 0 and duration < config.min_duration_seconds:
             print(f"⚠️ [Atlandı] Video süresi ({duration}s) belirlenen limitten ({config.min_duration_seconds}s) kısa.")
             await self.db.register_or_update(
                 source_chat_id, message.id, file_unique_id,
-                video_info["file_name"], file_size, duration, status="SKIPPED"
+                media_info["file_name"], media_type, file_size, duration, status="SKIPPED"
             )
             return None
 
         # Dosya adı ve hedef yolu belirle
-        safe_name = MediaHelper.sanitize_filename(video_info["file_name"])
+        safe_name = MediaHelper.sanitize_filename(media_info["file_name"])
         target_dir = config.download_dir / str(source_chat_id).replace("-100", "").replace("-", "")
         target_dir.mkdir(parents=True, exist_ok=True)
         destination_path = target_dir / f"{message.id}_{safe_name}"
@@ -71,6 +73,7 @@ class VideoDownloader:
             message.id,
             file_unique_id=file_unique_id,
             file_name=safe_name,
+            media_type=media_type,
             file_size=file_size,
             duration=duration,
             status="DOWNLOADING",
@@ -78,22 +81,24 @@ class VideoDownloader:
 
         retries = 0
         last_error = None
+        type_label = "Fotoğraf" if media_type == "photo" else "Video"
 
         while retries <= config.max_retries:
             pbar = None
             try:
                 # İlerleme çubuğunu oluştur
                 pbar = tqdm(
-                    total=file_size,
+                    total=file_size if file_size > 0 else None,
                     unit="B",
                     unit_scale=True,
-                    desc=f"📥 İndiriliyor [Msg #{message.id}]",
+                    desc=f"📥 İndiriliyor ({type_label}) [Msg #{message.id}]",
                     ncols=90,
                     leave=False,
                 )
 
                 def internal_progress(current: int, total: int):
                     if pbar:
+                        pbar.total = total
                         pbar.n = current
                         pbar.refresh()
                     if progress_callback:
@@ -111,7 +116,18 @@ class VideoDownloader:
 
                 if downloaded_file and Path(downloaded_file).exists():
                     download_path = Path(downloaded_file)
-                    # Başarılı indirme durumunu kaydet
+                    actual_size = download_path.stat().st_size
+                    # Gerçek dosya boyutuyla güncelle
+                    await self.db.register_or_update(
+                        source_chat_id,
+                        message.id,
+                        file_unique_id=file_unique_id,
+                        file_name=safe_name,
+                        media_type=media_type,
+                        file_size=actual_size,
+                        duration=duration,
+                        status="DOWNLOADED",
+                    )
                     await self.db.update_status(
                         source_chat_id=source_chat_id,
                         source_msg_id=message.id,
@@ -150,3 +166,12 @@ class VideoDownloader:
             increment_retry=True,
         )
         return None
+
+    async def download_video(
+        self,
+        message: types.Message,
+        source_chat_id: Union[int, str],
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> Optional[Path]:
+        """Geriye dönük uyumluluk sarmalayıcısı."""
+        return await self.download_media(message, source_chat_id, allowed_media_type="all", progress_callback=progress_callback)

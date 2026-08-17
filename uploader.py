@@ -14,7 +14,7 @@ from channel_helper import ChannelHelper
 
 
 class VideoUploader:
-    """İndirilen videoları hedef kanala (forum/topic desteğiyle) yükleyen sınıf."""
+    """İndirilen video ve fotoğrafları hedef kanala (forum/topic desteğiyle) yükleyen sınıf."""
 
     def __init__(self, client: TelegramClient, db: DatabaseManager):
         self.client = client
@@ -30,21 +30,22 @@ class VideoUploader:
             caption = f"{caption}\n{config.custom_caption_suffix}".strip()
         return caption
 
-    async def upload_video(
+    async def upload_media(
         self,
-        video_path: Path,
+        media_path: Path,
         source_chat_id: Union[int, str],
         source_msg_id: int,
+        media_type: str = "video",
         original_caption: str = "",
         target_chat: Optional[Union[int, str]] = None,
         target_topic_id: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Optional[types.Message]:
         """
-        Videoyu hedef kanala/gruba ve varsa belirtilen Forum Topic ID'sine yükler.
+        Video veya fotoğrafı hedef kanala/gruba ve varsa belirtilen Forum Topic ID'sine yükler.
         """
-        if not video_path.exists():
-            print(f"❌ Yüklenecek video dosyası bulunamadı: {video_path}")
+        if not media_path.exists():
+            print(f"❌ Yüklenecek medya dosyası bulunamadı: {media_path}")
             return None
 
         target_peer = target_chat if target_chat is not None else config.target_channel
@@ -61,25 +62,31 @@ class VideoUploader:
             if not is_forum:
                 print(f"ℹ️ Bilgi: Hedef kanal ({chat_info['title']}) standart modda, ancak Topic ID ({topic_id}) yanıt olarak kullanılacak.")
             else:
-                print(f"💬 Forum Modu Aktif: Video Topic ID #{topic_id} konusuna yüklenecek.")
+                print(f"💬 Forum Modu Aktif: Medya Topic ID #{topic_id} konusuna yüklenecek.")
         elif is_forum:
             print(f"⚠️ Dikkat: Hedef kanal ({chat_info['title']}) Forum modunda, ancak TARGET_TOPIC_ID belirtilmemiş (Genel Konuya yüklenecek).")
 
-        # Video meta verilerini ve küçük resmini (thumbnail) hazırla
-        file_size = video_path.stat().st_size
-        duration, width, height = MediaHelper.get_video_metadata(video_path)
-        thumb_path = await MediaHelper.generate_thumbnail(video_path)
-
-        attributes = [
-            types.DocumentAttributeVideo(
-                duration=duration,
-                w=width,
-                h=height,
-                supports_streaming=True,
-            )
-        ]
-
+        file_size = media_path.stat().st_size
         caption = self._prepare_caption(original_caption)
+        type_label = "Fotoğraf" if media_type == "photo" else "Video"
+
+        # Video için özel nitelikler
+        attributes = None
+        thumb_path = None
+        supports_streaming = False
+
+        if media_type == "video":
+            duration, width, height = MediaHelper.get_video_metadata(media_path)
+            thumb_path = await MediaHelper.generate_thumbnail(media_path)
+            attributes = [
+                types.DocumentAttributeVideo(
+                    duration=duration,
+                    w=width,
+                    h=height,
+                    supports_streaming=True,
+                )
+            ]
+            supports_streaming = True
 
         # Durumu UPLOADING yap
         await self.db.update_status(
@@ -100,7 +107,7 @@ class VideoUploader:
                     total=file_size,
                     unit="B",
                     unit_scale=True,
-                    desc=f"📤 Yükleniyor [Hedef: {chat_info['title'][:15]}]",
+                    desc=f"📤 Yükleniyor ({type_label}) [Hedef: {chat_info['title'][:15]}]",
                     ncols=90,
                     leave=False,
                 )
@@ -115,13 +122,13 @@ class VideoUploader:
                 # Telethon send_file
                 sent_msg = await self.client.send_file(
                     entity=target_peer,
-                    file=video_path,
+                    file=media_path,
                     caption=caption,
                     thumb=str(thumb_path) if thumb_path else None,
                     attributes=attributes,
                     reply_to=reply_to_arg,
                     progress_callback=internal_progress,
-                    supports_streaming=True,
+                    supports_streaming=supports_streaming,
                 )
 
                 if pbar:
@@ -140,7 +147,7 @@ class VideoUploader:
 
                     # Otomatik temizleme açıksa yerel dosyayı sil
                     if config.auto_cleanup:
-                        MediaHelper.safe_delete_file(video_path)
+                        MediaHelper.safe_delete_file(media_path)
 
                     # Yüklemeler arası bekleme (Flood koruması)
                     if config.delay_between_uploads > 0:
@@ -178,3 +185,25 @@ class VideoUploader:
             increment_retry=True,
         )
         return None
+
+    async def upload_video(
+        self,
+        video_path: Path,
+        source_chat_id: Union[int, str],
+        source_msg_id: int,
+        original_caption: str = "",
+        target_chat: Optional[Union[int, str]] = None,
+        target_topic_id: Optional[int] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> Optional[types.Message]:
+        """Geriye dönük uyumluluk sarmalayıcısı."""
+        return await self.upload_media(
+            media_path=video_path,
+            source_chat_id=source_chat_id,
+            source_msg_id=source_msg_id,
+            media_type="video",
+            original_caption=original_caption,
+            target_chat=target_chat,
+            target_topic_id=target_topic_id,
+            progress_callback=progress_callback,
+        )

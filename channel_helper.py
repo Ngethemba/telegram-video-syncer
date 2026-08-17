@@ -13,7 +13,7 @@ class ChannelHelper:
     @staticmethod
     def normalize_topic_id(raw_id: Union[int, str]) -> int:
         """
-        Telegram Web URL'lerinden gelen 64-bit topic ID'lerini (örn: 4294973210 veya thread=4294973210)
+        Telegram Web URL'lerinden gelen 64-bit topic ID'lerini (örn: thread=123456)
         ve standart MTProto topic ID'lerini (örn: 5914) çözer ve normalize eder.
         """
         try:
@@ -38,16 +38,13 @@ class ChannelHelper:
 
         # Telethon'da forum konularındaki mesajlar reply_to başlığı taşır
         if message.reply_to:
-            # reply_to_top_id forum başlığının kök mesaj ID'sidir (Topic ID)
             top_id = getattr(message.reply_to, "reply_to_top_id", None)
             if top_id:
                 return top_id
 
-            # Eğer forum_topic True ise reply_to_msg_id doğrudan Topic ID olabilir
             if getattr(message.reply_to, "forum_topic", False):
                 return getattr(message.reply_to, "reply_to_msg_id", None)
 
-            # Doğrudan reply_to_msg_id
             msg_id = getattr(message.reply_to, "reply_to_msg_id", None)
             if msg_id:
                 return msg_id
@@ -62,7 +59,6 @@ class ChannelHelper:
 
         msg_topic = ChannelHelper.get_message_topic_id(message)
         if msg_topic is None:
-            # Topic'siz ana mesajlar. Eğer listede 0 varsa izin ver, yoksa atla
             return 0 in allowed_topic_ids
 
         normalized_msg_topic = ChannelHelper.normalize_topic_id(msg_topic)
@@ -74,13 +70,11 @@ class ChannelHelper:
 
     async def resolve_peer_entity(self, chat_peer: Union[int, str]):
         """Kanal veya grup varlığını güvenli şekilde çözümler (-100 eksik girilse bile düzeltir)."""
-        # 1. Doğrudan dene
         try:
             return await self.client.get_entity(chat_peer)
         except Exception:
             pass
 
-        # 2. String/Int ise -100 prefixi veya PeerChannel ile dene
         peer_str = str(chat_peer).strip().replace("@", "")
         if peer_str.replace("-", "").isdigit():
             clean_digits = peer_str.replace("-", "")
@@ -94,7 +88,6 @@ class ChannelHelper:
             except Exception:
                 pass
 
-        # 3. Son olarak asıl çağrıyı yapıp hatayı fırlat
         return await self.client.get_entity(chat_peer)
 
     async def get_chat_info(self, chat_peer: Union[int, str]) -> Dict[str, Any]:
@@ -107,11 +100,7 @@ class ChannelHelper:
         username = getattr(entity, "username", None)
         is_channel = isinstance(entity, types.Channel)
         is_megagroup = getattr(entity, "megagroup", False)
-        
-        # Forum/Topic Modu Kontrolü
         is_forum = getattr(entity, "forum", False)
-
-        # İçerik koruması / indirme yasağı (noforwards)
         noforwards = getattr(entity, "noforwards", False)
 
         return {
@@ -152,75 +141,114 @@ class ChannelHelper:
             return []
 
     @staticmethod
-    def extract_video_info(message: types.Message) -> Optional[Dict[str, Any]]:
+    def extract_media_info(message: types.Message, allowed_media_type: str = "all") -> Optional[Dict[str, Any]]:
         """
-        Mesajın bir video veya video belgesi (document) içerip içermediğini tespit eder.
-        Dönüş: Video meta verileri veya video yoksa None.
+        Mesajdaki video veya fotoğraf medyasını tespit eder.
+        allowed_media_type: 'all' (video+foto), 'video' (yalnızca video), 'photo' (yalnızca fotoğraf)
         """
         if not message or not message.media:
             return None
 
-        # 1. Telethon message.video / message.document veya MessageMediaDocument kontrolü
-        doc = None
-        if getattr(message, "video", None):
-            doc = message.video
-        elif getattr(message, "document", None):
-            doc = message.document
-        elif isinstance(message.media, types.MessageMediaDocument) and isinstance(message.media.document, types.Document):
-            doc = message.media.document
-
-        if not doc or not isinstance(doc, types.Document):
-            return None
-
-        mime_type = getattr(doc, "mime_type", "")
-        file_size = getattr(doc, "size", 0)
-        file_name = None
-        duration = 0
-        width = 0
-        height = 0
-        is_video = False
-
-        # Video niteliklerini incele
-        for attr in doc.attributes:
-            if isinstance(attr, types.DocumentAttributeVideo):
-                is_video = True
-                duration = getattr(attr, "duration", 0)
-                width = getattr(attr, "w", 0)
-                height = getattr(attr, "h", 0)
-            elif isinstance(attr, types.DocumentAttributeFilename):
-                file_name = attr.file_name
-
-        # Mime type kontrolü (video/mp4, video/mkv, video/x-matroska, video/webm, vb.)
-        if mime_type and mime_type.startswith("video/"):
-            is_video = True
-
-        if not is_video and file_name:
-            lower_name = file_name.lower()
-            if lower_name.endswith((".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".ts", ".m4v", ".wmv")):
-                is_video = True
-
-        if not is_video:
-            return None
-
-        if not file_name:
-            ext = ".mp4"
-            if mime_type and "/" in mime_type:
-                sub = mime_type.split("/")[-1].replace("x-matroska", "mkv").replace("quicktime", "mov")
-                ext = f".{sub}"
-            file_name = f"video_{message.id}_{doc.id}{ext}"
-
-        file_unique_id = f"{doc.id}_{doc.access_hash}"
         topic_id = ChannelHelper.get_message_topic_id(message)
+        caption = message.text or ""
 
-        return {
-            "document": doc,
-            "file_unique_id": file_unique_id,
-            "file_name": file_name,
-            "file_size": file_size,
-            "duration": duration,
-            "width": width,
-            "height": height,
-            "mime_type": mime_type,
-            "caption": message.text or "",
-            "topic_id": topic_id,
-        }
+        # 1. FOTOĞRAF KONTROLÜ
+        if allowed_media_type in ("all", "both", "photo", "image"):
+            if getattr(message, "photo", None) or isinstance(message.media, types.MessageMediaPhoto):
+                photo = message.photo or getattr(message.media, "photo", None)
+                if photo and isinstance(photo, types.Photo):
+                    file_unique_id = f"photo_{photo.id}_{photo.access_hash}"
+                    file_name = f"photo_{message.id}_{photo.id}.jpg"
+                    
+                    # Fotoğraf boyutunu tahmin et
+                    file_size = 0
+                    width = 0
+                    height = 0
+                    if getattr(photo, "sizes", None):
+                        largest = photo.sizes[-1]
+                        file_size = getattr(largest, "size", 0)
+                        width = getattr(largest, "w", 0)
+                        height = getattr(largest, "h", 0)
+
+                    return {
+                        "media_type": "photo",
+                        "photo": photo,
+                        "document": None,
+                        "file_unique_id": file_unique_id,
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "duration": 0,
+                        "width": width,
+                        "height": height,
+                        "mime_type": "image/jpeg",
+                        "caption": caption,
+                        "topic_id": topic_id,
+                    }
+
+        # 2. VİDEO KONTROLÜ
+        if allowed_media_type in ("all", "both", "video"):
+            doc = None
+            if getattr(message, "video", None):
+                doc = message.video
+            elif getattr(message, "document", None):
+                doc = message.document
+            elif isinstance(message.media, types.MessageMediaDocument) and isinstance(message.media.document, types.Document):
+                doc = message.media.document
+
+            if doc and isinstance(doc, types.Document):
+                mime_type = getattr(doc, "mime_type", "")
+                file_size = getattr(doc, "size", 0)
+                file_name = None
+                duration = 0
+                width = 0
+                height = 0
+                is_video = False
+
+                for attr in doc.attributes:
+                    if isinstance(attr, types.DocumentAttributeVideo):
+                        is_video = True
+                        duration = getattr(attr, "duration", 0)
+                        width = getattr(attr, "w", 0)
+                        height = getattr(attr, "h", 0)
+                    elif isinstance(attr, types.DocumentAttributeFilename):
+                        file_name = attr.file_name
+
+                if mime_type and mime_type.startswith("video/"):
+                    is_video = True
+
+                if not is_video and file_name:
+                    lower_name = file_name.lower()
+                    if lower_name.endswith((".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".ts", ".m4v", ".wmv")):
+                        is_video = True
+
+                if is_video:
+                    if not file_name:
+                        ext = ".mp4"
+                        if mime_type and "/" in mime_type:
+                            sub = mime_type.split("/")[-1].replace("x-matroska", "mkv").replace("quicktime", "mov")
+                            ext = f".{sub}"
+                        file_name = f"video_{message.id}_{doc.id}{ext}"
+
+                    file_unique_id = f"video_{doc.id}_{doc.access_hash}"
+
+                    return {
+                        "media_type": "video",
+                        "photo": None,
+                        "document": doc,
+                        "file_unique_id": file_unique_id,
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "duration": duration,
+                        "width": width,
+                        "height": height,
+                        "mime_type": mime_type,
+                        "caption": caption,
+                        "topic_id": topic_id,
+                    }
+
+        return None
+
+    @staticmethod
+    def extract_video_info(message: types.Message) -> Optional[Dict[str, Any]]:
+        """Geriye dönük uyumluluk için extract_media_info video sarmalayıcısı."""
+        return ChannelHelper.extract_media_info(message, allowed_media_type="video")
