@@ -149,7 +149,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="footer">
-            Telegram Medya Aktarıcı Dashboard • Pardus / Debian Linux
+            Telegram Media Syncer Dashboard - Linux and Windows
         </div>
     </div>
 

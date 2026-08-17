@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Union
 from dotenv import load_dotenv
 
-# .env dosyasını yükle
+# Load environment variables
 load_dotenv()
 
 
@@ -14,8 +14,8 @@ def _str_to_bool(value: str) -> bool:
 
 def _normalize_topic_id(raw_id: Union[int, str]) -> int:
     """
-    Telegram Web URL'lerinden gelen 64-bit topic ID'lerini (örn: thread=12345678)
-    ve standart topic ID'lerini (örn: 5914) normalize eder.
+    Normalizes 64-bit topic/thread IDs from Telegram Web URLs (e.g. thread=123456)
+    and standard MTProto topic IDs (e.g. 5914).
     """
     try:
         if isinstance(raw_id, str):
@@ -34,8 +34,8 @@ def _normalize_topic_id(raw_id: Union[int, str]) -> int:
 
 def _format_channel_id(item: str) -> Union[int, str]:
     """
-    Kanal kimliklerini çözümler. Telegram Web'den gelen eksik -100 prefixlerini otomatik tamamlar.
-    Örn: -1234567890 veya 1234567890 -> -1001234567890
+    Formats channel identifiers. Automatically prepends -100 prefix for supergroups if omitted.
+    Example: -1234567890 or 1234567890 -> -1001234567890
     """
     item = str(item).strip()
     if not item:
@@ -51,7 +51,6 @@ def _format_channel_id(item: str) -> Union[int, str]:
 
     digits_only = item.replace("-", "").strip()
     if digits_only.isdigit():
-        # Süper grup / Kanal ID'leri Telethon'da -100 ile başlamalıdır
         if not item.startswith("-100"):
             return int(f"-100{digits_only}")
         return int(item)
@@ -92,22 +91,25 @@ def _parse_topic_list(value: str) -> List[int]:
 
 @dataclass
 class AppConfig:
+    # Language: tr or en
+    language: str = field(default_factory=lambda: os.getenv("LANGUAGE", "tr").lower().strip())
+
     # Telegram API
     api_id: int = field(default_factory=lambda: int(os.getenv("TELEGRAM_API_ID", "0")))
     api_hash: str = field(default_factory=lambda: os.getenv("TELEGRAM_API_HASH", ""))
     phone: str = field(default_factory=lambda: os.getenv("TELEGRAM_PHONE", ""))
     session_name: str = field(default_factory=lambda: os.getenv("SESSION_NAME", "telegram_syncer_session"))
 
-    # Medya Türü: all (video ve fotoğraf), video (yalnızca video), photo (yalnızca fotoğraf)
+    # Media Type: all, video, photo
     media_type: str = field(
         default_factory=lambda: os.getenv("MEDIA_TYPE", "all").lower().strip()
     )
 
-    # Kanallar
+    # Channels
     source_channels: List[Union[int, str]] = field(
         default_factory=lambda: _parse_channel_list(os.getenv("SOURCE_CHANNELS", ""))
     )
-    # Kaynak Kanal Topic/Konu ID Filtresi (Opsiyonel: boşsa tüm topicler indirilir)
+    # Source topic filter (Optional: empty = all topics)
     source_topic_ids: List[int] = field(
         default_factory=lambda: _parse_topic_list(os.getenv("SOURCE_TOPIC_IDS", ""))
     )
@@ -119,7 +121,7 @@ class AppConfig:
         default_factory=lambda: _normalize_topic_id(os.getenv("TARGET_TOPIC_ID", "0"))
     )
 
-    # İndirme & Yükleme
+    # Download & Upload settings
     download_dir: Path = field(
         default_factory=lambda: Path(os.getenv("DOWNLOAD_DIR", "downloads"))
     )
@@ -142,7 +144,7 @@ class AppConfig:
         default_factory=lambda: int(os.getenv("DELAY_BETWEEN_UPLOADS", "3"))
     )
 
-    # Başlık ve Açıklamalar
+    # Captions
     keep_original_caption: bool = field(
         default_factory=lambda: _str_to_bool(os.getenv("KEEP_ORIGINAL_CAPTION", "true"))
     )
@@ -153,25 +155,24 @@ class AppConfig:
         default_factory=lambda: os.getenv("CUSTOM_CAPTION_SUFFIX", "")
     )
 
-    # Veritabanı
+    # Database
     db_path: Path = field(default_factory=lambda: Path("syncer_database.db"))
 
     def validate(self) -> None:
-        """Yapılandırma ayarlarının geçerliliğini doğrular."""
+        """Validates configuration parameters."""
         errors = []
         if not self.api_id or self.api_id == 0:
-            errors.append("TELEGRAM_API_ID belirtilmemiş veya geçersiz.")
+            errors.append("TELEGRAM_API_ID is required and must be valid.")
         if not self.api_hash:
-            errors.append("TELEGRAM_API_HASH belirtilmemiş.")
+            errors.append("TELEGRAM_API_HASH is required.")
         if not self.source_channels:
-            errors.append("En az bir SOURCE_CHANNELS (kaynak kanal) belirtilmelidir.")
+            errors.append("At least one SOURCE_CHANNELS must be specified.")
         if not self.target_channel:
-            errors.append("TARGET_CHANNEL (hedef kanal) belirtilmelidir.")
+            errors.append("TARGET_CHANNEL must be specified.")
 
         if errors:
-            raise ValueError("Yapılandırma Hatası:\n- " + "\n- ".join(errors))
+            raise ValueError("Configuration Error:\n- " + "\n- ".join(errors))
 
-        # İndirme klasörünü oluştur
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
 

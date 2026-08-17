@@ -11,10 +11,11 @@ from config import config
 from database import DatabaseManager
 from media_helper import MediaHelper
 from channel_helper import ChannelHelper
+from i18n import t
 
 
 class VideoUploader:
-    """İndirilen video ve fotoğrafları hedef kanala (forum/topic desteğiyle) yükleyen sınıf."""
+    """Uploads downloaded videos and photos to target channel with topic support."""
 
     def __init__(self, client: TelegramClient, db: DatabaseManager):
         self.client = client
@@ -22,7 +23,6 @@ class VideoUploader:
         self.channel_helper = ChannelHelper(client)
 
     def _prepare_caption(self, original_caption: str) -> str:
-        """Açıklama (caption) metnini yapılandırmaya göre biçimlendirir."""
         caption = original_caption if config.keep_original_caption else ""
         if config.custom_caption_prefix:
             caption = f"{config.custom_caption_prefix}\n{caption}".strip()
@@ -41,36 +41,30 @@ class VideoUploader:
         target_topic_id: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Optional[types.Message]:
-        """
-        Video veya fotoğrafı hedef kanala/gruba ve varsa belirtilen Forum Topic ID'sine yükler.
-        """
         if not media_path.exists():
-            print(f"❌ Yüklenecek medya dosyası bulunamadı: {media_path}")
+            print(f"[ERROR] Media file not found: {media_path}")
             return None
 
         target_peer = target_chat if target_chat is not None else config.target_channel
         topic_id = target_topic_id if target_topic_id is not None else config.target_topic_id
 
-        # Hedef kanal bilgilerini al
         chat_info = await self.channel_helper.get_chat_info(target_peer)
         is_forum = chat_info.get("is_forum", False)
 
-        # Topic kontrolü ve uyarısı
         reply_to_arg = None
         if topic_id and topic_id > 0:
             reply_to_arg = topic_id
             if not is_forum:
-                print(f"ℹ️ Bilgi: Hedef kanal ({chat_info['title']}) standart modda, ancak Topic ID ({topic_id}) yanıt olarak kullanılacak.")
+                print(f"[INFO] Target channel ({chat_info['title']}) is standard; Topic ID ({topic_id}) used as reply_to.")
             else:
-                print(f"💬 Forum Modu Aktif: Medya Topic ID #{topic_id} konusuna yüklenecek.")
+                print(f"[FORUM] Target Topic ID #{topic_id} active.")
         elif is_forum:
-            print(f"⚠️ Dikkat: Hedef kanal ({chat_info['title']}) Forum modunda, ancak TARGET_TOPIC_ID belirtilmemiş (Genel Konuya yüklenecek).")
+            print(f"[INFO] Target channel is a Forum; TARGET_TOPIC_ID is 0 (General Topic).")
 
         file_size = media_path.stat().st_size
         caption = self._prepare_caption(original_caption)
-        type_label = "Fotoğraf" if media_type == "photo" else "Video"
+        type_label = t(media_type)
 
-        # Video için özel nitelikler
         attributes = None
         thumb_path = None
         supports_streaming = False
@@ -88,7 +82,6 @@ class VideoUploader:
             ]
             supports_streaming = True
 
-        # Durumu UPLOADING yap
         await self.db.update_status(
             source_chat_id=source_chat_id,
             source_msg_id=source_msg_id,
@@ -107,7 +100,7 @@ class VideoUploader:
                     total=file_size,
                     unit="B",
                     unit_scale=True,
-                    desc=f"📤 Yükleniyor ({type_label}) [Hedef: {chat_info['title'][:15]}]",
+                    desc=f"[UPLOAD] ({type_label}) [Target: {chat_info['title'][:15]}]",
                     ncols=90,
                     leave=False,
                 )
@@ -119,7 +112,6 @@ class VideoUploader:
                     if progress_callback:
                         progress_callback(current, total)
 
-                # Telethon send_file
                 sent_msg = await self.client.send_file(
                     entity=target_peer,
                     file=media_path,
@@ -135,7 +127,6 @@ class VideoUploader:
                     pbar.close()
 
                 if sent_msg:
-                    # Başarılı kayıt
                     await self.db.update_status(
                         source_chat_id=source_chat_id,
                         source_msg_id=source_msg_id,
@@ -145,11 +136,9 @@ class VideoUploader:
                         target_topic_id=topic_id,
                     )
 
-                    # Otomatik temizleme açıksa yerel dosyayı sil
                     if config.auto_cleanup:
                         MediaHelper.safe_delete_file(media_path)
 
-                    # Yüklemeler arası bekleme (Flood koruması)
                     if config.delay_between_uploads > 0:
                         await asyncio.sleep(config.delay_between_uploads)
 
@@ -159,7 +148,7 @@ class VideoUploader:
                 if pbar:
                     pbar.close()
                 wait_sec = e.seconds + 2
-                print(f"\n⏳ [FloodWait] Telegram hız sınırına takıldı. {wait_sec} saniye bekleniyor...")
+                print(f"\n{t('flood_wait', sec=wait_sec)}")
                 await asyncio.sleep(wait_sec)
                 retries += 1
                 continue
@@ -170,13 +159,12 @@ class VideoUploader:
                 last_error = str(e)
                 retries += 1
                 wait_sec = config.retry_delay_seconds * (2 ** (retries - 1))
-                print(f"\n❌ [Yükleme Hatası - Deneme {retries}/{config.max_retries}]: {e}")
+                print(f"\n[ERROR] Upload attempt {retries}/{config.max_retries}: {e}")
                 
                 if retries <= config.max_retries:
-                    print(f"⏳ {wait_sec} saniye sonra tekrar denenecek...")
+                    print(f"[RETRY] Retrying in {wait_sec} seconds...")
                     await asyncio.sleep(wait_sec)
 
-        # Başarısızlık kaydı
         await self.db.update_status(
             source_chat_id=source_chat_id,
             source_msg_id=source_msg_id,
@@ -196,7 +184,6 @@ class VideoUploader:
         target_topic_id: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Optional[types.Message]:
-        """Geriye dönük uyumluluk sarmalayıcısı."""
         return await self.upload_media(
             media_path=video_path,
             source_chat_id=source_chat_id,
