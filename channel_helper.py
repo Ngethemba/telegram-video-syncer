@@ -160,13 +160,16 @@ class ChannelHelper:
         if not message or not message.media:
             return None
 
-        # 1. Doğrudan MessageMediaDocument veya MessageMediaUnsupported
-        media = message.media
-        if not isinstance(media, types.MessageMediaDocument):
-            return None
+        # 1. Telethon message.video / message.document veya MessageMediaDocument kontrolü
+        doc = None
+        if getattr(message, "video", None):
+            doc = message.video
+        elif getattr(message, "document", None):
+            doc = message.document
+        elif isinstance(message.media, types.MessageMediaDocument) and isinstance(message.media.document, types.Document):
+            doc = message.media.document
 
-        doc = media.document
-        if not isinstance(doc, types.Document):
+        if not doc or not isinstance(doc, types.Document):
             return None
 
         mime_type = getattr(doc, "mime_type", "")
@@ -188,12 +191,12 @@ class ChannelHelper:
                 file_name = attr.file_name
 
         # Mime type kontrolü (video/mp4, video/mkv, video/x-matroska, video/webm, vb.)
-        if mime_type.startswith("video/"):
+        if mime_type and mime_type.startswith("video/"):
             is_video = True
 
         if not is_video and file_name:
             lower_name = file_name.lower()
-            if lower_name.endswith((".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".ts", ".m4v")):
+            if lower_name.endswith((".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".ts", ".m4v", ".wmv")):
                 is_video = True
 
         if not is_video:
@@ -201,8 +204,9 @@ class ChannelHelper:
 
         if not file_name:
             ext = ".mp4"
-            if mime_type:
-                ext = f".{mime_type.split('/')[-1]}"
+            if mime_type and "/" in mime_type:
+                sub = mime_type.split("/")[-1].replace("x-matroska", "mkv").replace("quicktime", "mov")
+                ext = f".{sub}"
             file_name = f"video_{message.id}_{doc.id}{ext}"
 
         file_unique_id = f"{doc.id}_{doc.access_hash}"

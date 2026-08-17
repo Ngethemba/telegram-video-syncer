@@ -53,6 +53,7 @@ class TelegramSyncerApp:
         message: types.Message,
         source_chat_id: Union[int, str],
         source_title: str = "",
+        force: bool = False,
     ) -> bool:
         """Tek bir mesajı inceler, video ise indirir ve hedef kanala yükler."""
         video_info = ChannelHelper.extract_video_info(message)
@@ -62,8 +63,6 @@ class TelegramSyncerApp:
         # Kaynak Topic Filtresi Kontrolü
         if self.source_topic_ids:
             if not ChannelHelper.is_message_in_topics(message, self.source_topic_ids):
-                msg_topic = video_info.get("topic_id")
-                # İlgili topic değilse atla
                 return False
 
         file_size_mb = video_info["file_size"] / (1024 * 1024)
@@ -77,15 +76,16 @@ class TelegramSyncerApp:
         print(f"   📦 Boyut     : {file_size_mb:.2f} MB")
         print(f"   ⏱️ Süre      : {video_info['duration']} sn")
 
-        # 1. Mükerrer Kontrolü (Daha önce başarıyla yüklendi mi?)
-        is_completed = await self.db.is_already_completed(
-            source_chat_id=source_chat_id,
-            source_msg_id=message.id,
-            file_unique_id=file_unique_id,
-        )
-        if is_completed:
-            print(Fore.BLUE + f"   ⏭️ [Atlandı] Bu video daha önce başarıyla aktarılmış.")
-            return False
+        # 1. Mükerrer Kontrolü (force aktif değilse)
+        if not force:
+            is_completed = await self.db.is_already_completed(
+                source_chat_id=source_chat_id,
+                source_msg_id=message.id,
+                file_unique_id=file_unique_id,
+            )
+            if is_completed:
+                print(Fore.BLUE + f"   ⏭️ [Atlandı] Bu video daha önce başarıyla aktarılmış (Yeniden indirmek için --force kullanın).")
+                return False
 
         # 2. İndirme Aşaması
         download_path = await self.downloader.download_video(
@@ -162,12 +162,16 @@ class TelegramSyncerApp:
         while self._is_running:
             await asyncio.sleep(1)
 
-    async def run_history_sync(self, limit: int = 100, reverse: bool = True):
-        """Geçmiş tarama modu: Belirtilen limit kadar geçmiş mesajları tarar."""
+    async def run_history_sync(self, limit: int = 0, reverse: bool = False, force: bool = False):
+        """Geçmiş tarama modu: Belirtilen konulardaki tüm videoları eksiksiz tarar ve aktarır."""
         print(Fore.CYAN + "\n" + "=" * 60)
-        print(Fore.CYAN + f"📚 GEÇMİŞ TARAMA MODU (Limit: {'Tümü' if limit == 0 else limit})")
+        limit_text = "TÜM GEÇMİŞ (Sınırsız)" if limit == 0 else f"{limit} Mesaj"
+        order_text = "Eskiden Yeniye" if reverse else "Yeniden Eskiye (En güncel videolar)"
+        print(Fore.CYAN + f"📚 GEÇMİŞ TARAMA MODU ({limit_text} | Sıralama: {order_text})")
         if self.source_topic_ids:
-            print(Fore.YELLOW + f"🎯 Kaynak Topic(ler): {self.source_topic_ids}")
+            print(Fore.YELLOW + f"🎯 Taranacak Topic(ler): {self.source_topic_ids}")
+        if force:
+            print(Fore.MAGENTA + "⚠️ FORCE MODU AKTİF: Önceden indirilmiş videolar da tekrar aktarılacak.")
         print(Fore.CYAN + "=" * 60)
 
         for src in config.source_channels:
@@ -177,44 +181,62 @@ class TelegramSyncerApp:
                 print(Fore.YELLOW + f"\n🔍 Kanal taranıyor: {chat_info['title']} (ID: {chat_info['id']})")
 
                 effective_limit = None if limit == 0 else limit
-                processed_count = 0
-                synced_count = 0
 
-                # Eğer belirli topic ID'leri belirtilmişse doğrudan o topic'leri tara
+                # Eğer belirli topic ID'leri belirtilmişse sırayla her topic'in TÜM videolarını tara
                 if self.source_topic_ids:
                     for topic_id in self.source_topic_ids:
-                        print(Fore.CYAN + f"   📂 Topic #{topic_id} taranıyor...")
+                        print(Fore.CYAN + f"\n   📂 [Topic #{topic_id}] Taraması Başlatıldı (Tüm mesajlar inceleniyor)...")
+                        topic_scanned_count = 0
+                        topic_video_count = 0
+                        topic_synced_count = 0
+
                         async for message in self.client.iter_messages(
                             entity, limit=effective_limit, reply_to=topic_id, reverse=reverse
                         ):
                             if not self._is_running:
                                 break
+                            topic_scanned_count += 1
+
                             if message.media:
-                                processed_count += 1
+                                is_video = ChannelHelper.extract_video_info(message) is not None
+                                if is_video:
+                                    topic_video_count += 1
+                                    success = await self.process_single_message(
+                                        message=message,
+                                        source_chat_id=chat_info["id"],
+                                        source_title=chat_info["title"],
+                                        force=force,
+                                    )
+                                    if success:
+                                        topic_synced_count += 1
+
+                        print(Fore.GREEN + f"   ✅ Topic #{topic_id} tamamlandı: {topic_scanned_count} mesaj incelendi, {topic_video_count} video bulundu, {topic_synced_count} video aktarıldı.")
+                else:
+                    # Tüm kanalı tara
+                    print(Fore.CYAN + f"\n   📢 Kanalın tüm geçmişi taranıyor...")
+                    scanned_count = 0
+                    video_count = 0
+                    synced_count = 0
+
+                    async for message in self.client.iter_messages(entity, limit=effective_limit, reverse=reverse):
+                        if not self._is_running:
+                            break
+                        scanned_count += 1
+
+                        if message.media:
+                            is_video = ChannelHelper.extract_video_info(message) is not None
+                            if is_video:
+                                video_count += 1
                                 success = await self.process_single_message(
                                     message=message,
                                     source_chat_id=chat_info["id"],
                                     source_title=chat_info["title"],
+                                    force=force,
                                 )
                                 if success:
                                     synced_count += 1
-                else:
-                    # Tüm kanalı tara
-                    async for message in self.client.iter_messages(entity, limit=effective_limit, reverse=reverse):
-                        if not self._is_running:
-                            break
 
-                        if message.media:
-                            processed_count += 1
-                            success = await self.process_single_message(
-                                message=message,
-                                source_chat_id=chat_info["id"],
-                                source_title=chat_info["title"],
-                            )
-                            if success:
-                                synced_count += 1
-
-                print(Fore.GREEN + f"✅ {chat_info['title']} tamamlandı. (Toplam taranan medya: {processed_count}, Aktarılan: {synced_count})")
+                    print(Fore.GREEN + f"✅ {chat_info['title']} tamamlandı: {scanned_count} mesaj incelendi, {video_count} video bulundu, {synced_count} video aktarıldı.")
 
             except Exception as e:
                 print(Fore.RED + f"❌ Kanal taranırken hata oluştu ({src}): {e}")
@@ -408,8 +430,8 @@ async def main():
     parser.add_argument(
         "--limit",
         type=int,
-        default=100,
-        help="Geçmiş tarama modu için taranacak mesaj sayısı (0 = tüm geçmiş)",
+        default=0,
+        help="Geçmiş tarama modu için taranacak mesaj sayısı (0 = sınırsız / konudaki TÜM videolar)",
     )
     parser.add_argument(
         "--topic",
@@ -421,8 +443,14 @@ async def main():
     parser.add_argument(
         "--reverse",
         action="store_true",
-        default=True,
-        help="Geçmiş taramada en eski videodan başlayarak sırayla aktar",
+        default=False,
+        help="Geçmiş taramada en eski mesajdan başla (Varsayılan: En yeni videolardan başlar)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Daha önce indirilmiş videoları mükerrer kontrolünü atlayarak tekrar indir ve yükle",
     )
 
     args = parser.parse_args()
@@ -460,7 +488,7 @@ async def main():
         if args.mode == "live":
             await app.run_live_monitor()
         elif args.mode == "history":
-            await app.run_history_sync(limit=args.limit, reverse=args.reverse)
+            await app.run_history_sync(limit=args.limit, reverse=args.reverse, force=args.force)
         elif args.mode == "interactive":
             await app.run_interactive_selection()
         elif args.mode == "retry-failed":
