@@ -6,6 +6,7 @@ Telegram kanallarından ve gruplarından (içerik kopyalama/indirme yasağı ola
 
 ## 🌟 Öne Çıkan Yetenekler
 
+- 📱 **Nano Gerektirmeyen Kolay Arayüz:** Kullanıcı dostu interaktif kontrol menüsü, adım adım kurulum sihirbazı ve Web tarayıcı kontrol paneli.
 - 📸 **Video & Fotoğraf Desteği:** İster hem video hem fotoğrafları (`MEDIA_TYPE=all`), ister yalnızca videoları (`MEDIA_TYPE=video`), isterseniz de yalnızca fotoğrafları (`MEDIA_TYPE=photo`) aktarın.
 - 🔒 **Kısıtlı / Yasaklı Kanal Desteği (Restricted Content):** Telegram Bot API'nin aksine MTProto istemcisi (Telethon) kullandığından, kopyalama yasağı (`noforwards` / `protected_content`) bulunan kanallardaki video ve fotoğrafları doğrudan stream ederek kaydeder ve aktarır.
 - 💬 **Gelişmiş Forum & Topic (Konu) Filtreleme:** 
@@ -16,125 +17,80 @@ Telegram kanallarından ve gruplarından (içerik kopyalama/indirme yasağı ola
 - 🔄 **Akıllı Hata Yakalama & FloodWait:** Ağ kopmalarında veya Telegram hız sınırlarında (`FloodWaitError`) otomatik bekler ve logaritmik artan aralıklarla (exponential backoff) tekrar dener.
 - 🎬 **FFmpeg Küçük Resim (Thumbnail) & Metadata:** Videolardan otomatik kapak resmi üretir, süre ve çözünürlük bilgilerini Telegram video oynatıcısına uygun formatta aktarır.
 - 🧹 **Otomatik Disk Temizliği:** Yüklenen medyalar diskte yer kaplamaması için aktarım bittikten sonra yerel diskten otomatik olarak silinir.
-- 🐧 **Pardus & Debian Tam Uyumluluk:** Tek komut kurulum betiği (`install.sh`) ve 7/24 arka planda çalıştırabilmeniz için `systemd` servis şablonu içerir.
+- 🐧 **Pardus & Debian Tam Uyumluluk:** Tek komut kurulum betiği (`install.sh`), masaüstü kısayolu (`.desktop`) ve 7/24 arka planda çalıştırma için `systemd` servis şablonu.
 
 ---
 
-## 📋 Gereksinimler
+## 🛠️ Pardus / Debian Hızlı Başlangıç (Tek Komutla Çalıştırın)
 
-- **İşletim Sistemi:** Pardus Linux, Debian 10/11/12, Ubuntu 20.04+ (veya herhangi bir Linux dağıtımı)
-- **Python:** Python 3.8 veya üzeri
-- **Sistem Paketleri:** `ffmpeg`, `git`, `python3-venv` (Kurulum betiği otomatik yükler)
+Debian veya Pardus bilgisayarınızda terminali açın:
 
----
-
-## 🛠️ Pardus / Debian Linux Kurulum Rehberi
-
-Debian veya Pardus bilgisayarınızda terminali açın ve şu adımları izleyin:
-
-### 1. Projeyi Klonlayın
 ```bash
+# 1. Projeyi İndirin
 git clone https://github.com/Ngethemba/telegram-video-syncer.git
 cd telegram-video-syncer
-```
 
-### 2. Kurulum Betiğini Çalıştırın
-Kurulum betiği gerekli sistem paketlerini (`ffmpeg`, `python3-venv`), sanal ortamı (`venv`) ve Python bağımlılıklarını otomatik kuracaktır:
-```bash
+# 2. Kurulumu Yapın
 chmod +x install.sh run.sh
 ./install.sh
+
+# 3. Uygulamayı Başlatın (İnteraktif Menü Açılır)
+./run.sh
 ```
 
 ---
 
-## ⚙️ Yapılandırma (.env Dosyası)
+## 📱 Kullanım Seçenekleri
 
-`install.sh` otomatik olarak bir `.env` dosyası oluşturur. Dosyayı düzenlemek için:
+### 1. 🎮 İnteraktif Kontrol Menüsü (Tavsiye Edilen)
+Hiçbir karmaşık komutla veya `nano` ile uğraşmadan yalnızca `./run.sh` yazmanız yeterlidir:
+
 ```bash
-nano .env
+./run.sh
 ```
-
-### Telegram API Bilgilerini Alma:
-1. [my.telegram.org](https://my.telegram.org) adresine gidin ve Telegram numaranızla giriş yapın.
-2. **"API development tools"** bölümüne tıklayın.
-3. Yeni bir uygulama tanımlayarak `api_id` ve `api_hash` değerlerinizi alın.
-
-### `.env` Değişkenleri:
-
-| Değişken | Açıklama | Örnek Değer |
-| :--- | :--- | :--- |
-| `TELEGRAM_API_ID` | Telegram API ID | `12345678` |
-| `TELEGRAM_API_HASH` | Telegram API Hash | `0123456789abcdef0123456789abcdef` |
-| `TELEGRAM_PHONE` | Hesabınızın telefon numarası | `+905551234567` |
-| `MEDIA_TYPE` | İndirilecek medya türü (`all`, `video`, `photo`) | `all` |
-| `SOURCE_CHANNELS` | İzlenecek kaynak kanal(lar) (virgülle ayrılmış) | `-1001234567890, @kaynak_kanal` |
-| `SOURCE_TOPIC_IDS` | Kaynakta Yalnızca Belirli Topic(ler)i İndir (Boşsa tümü) | `5914` veya `5914, 1234` |
-| `TARGET_CHANNEL` | Medyaların yükleneceği hedef kanal | `-1009876543210` veya `@hedef_kanal` |
-| `TARGET_TOPIC_ID` | Hedef kanal Forum ise yüklenecek Konu/Topic ID | `5914` (Ana kanal için `0`) |
-| `AUTO_CLEANUP` | Yüklenen medyaları yerel diskten sil | `true` |
-| `MAX_FILE_SIZE_MB` | Maksimum dosya boyutu (MB) (0 = sınırsız) | `0` |
-| `MIN_DURATION_SECONDS` | Minimum video süresi (saniye) (0 = sınırsız) | `0` |
-| `MAX_RETRIES` | Başarısız işlemlerde tekrar deneme sayısı | `5` |
-| `DELAY_BETWEEN_UPLOADS` | İki yükleme arası bekleme (saniye) | `3` |
+Karşınıza gelen renkli Türkçe menüden yapmak istediğiniz işlemin numarasını (1-8) tuşlamanız yeterlidir:
+* `[1]` 📡 Canlı İzleme Modu (Yeni medyaları anında aktarır)
+* `[2]` 📚 Geçmiş Medyaları Tara & Aktar (Seçili konudaki tüm medyaları çeker)
+* `[3]` 📑 Kaynak Kanaldaki Konuları (Topic) Listele
+* `[4]` 📋 Seçmeli Aktarım Modu (Listeden tek tek seçerek)
+* `[5]` 🔄 Başarısız / Yarım Kalanları Tekrar Dene
+* `[6]` 📊 Durum ve İstatistik Raporu
+* `[7]` ⚙️ Ayarları Düzenle (Kolay Kurulum Sihirbazı)
+* `[8]` 🌐 Web Kontrol Panelini Başlat (Tarayıcıdan Yönetim)
 
 ---
 
-## 🚀 Kullanım ve Çalıştırma Modları
+### 2. 🌐 Web Kontrol Paneli (Tarayıcıdan Yönetim)
+Dilerseniz uygulamayı doğrudan web tarayıcınızdan (Chrome, Firefox vb.) yönetebilirsiniz:
 
-### 1. Medya Türü Seçerek Çalıştırma (`--type`)
 ```bash
-# Hem video hem fotoğrafları aktar (Varsayılan):
-./run.sh live --type all
+python3 web_ui.py
+```
+Tarayıcınızda **`http://localhost:5000`** adresine gidin:
+- Tek tıkla ayarları düzenleyip kaydedin.
+- Anlık aktarım istatistiklerini grafiksel olarak görün.
+- Butonlara basarak indirme ve tarama işlemlerini başlatın.
 
-# Yalnızca videoları aktar:
-./run.sh live --type video
+---
 
-# Yalnızca fotoğrafları aktar:
-./run.sh live --type photo
+### 3. 🧙 Kolay Kurulum Sihirbazı (Ayarları Değiştirmek İçin)
+Ayarları `nano` editörü açmadan, adım adım soru-cevap şeklinde değiştirmek için:
+```bash
+python3 setup_wizard.py
 ```
 
-### 2. Canlı İzleme Modu (Live Monitor)
-Kaynak kanalları dinler ve yeni gelen medyaları hedefe aktarır:
-```bash
-./run.sh live
-```
+---
 
-### 3. Geçmiş Mesaj Tarama Modu (Batch History)
-Kaynak kanaldaki geçmiş mesajları tarar ve henüz aktarılmamış tüm medyaları aktarır:
-```bash
-# Seçili konudaki TÜM geçmiş medyaları tara:
-./run.sh history
+### 4. ⚡ Hızlı Terminal Komutları
 
-# Yalnızca belirli bir konunun geçmiş fotoğraflarını tara:
-./run.sh history --topic 5914 --type photo
-
-# Daha önce indirilmiş olanları da sıfırdan tekrar indir:
-./run.sh history --force
-```
-
-### 4. Konuları Listeleme (`list-topics`)
-Kaynak kanaldaki tüm konu başlıklarını ve Topic ID'lerini listeler:
-```bash
-./run.sh list-topics
-```
-
-### 5. Seçmeli Aktarım Modu (Interactive Mode)
-Kaynak kanaldaki son video ve fotoğrafları listeler, terminalden seçtiğiniz medyaları aktarır:
-```bash
-./run.sh interactive
-```
-
-### 6. Başarısızları Yeniden Deneme (Retry Failed)
-Daha önce ağ kesintisi gibi nedenlerle tamamlanamamış medyaları tekrar sıraya alır:
-```bash
-./run.sh retry-failed
-```
-
-### 7. Durum ve İstatistik Raporu (Status)
-Veritabanında kayıtlı aktarımların özetini görüntüler:
-```bash
-./run.sh status
-```
+* **Canlı İzleme:** `./run.sh live`
+* **Geçmiş Medyaları Tara:** `./run.sh history`
+* **Yalnızca Fotoğrafları Tara:** `./run.sh history --type photo`
+* **Yalnızca Videoları Tara:** `./run.sh history --type video`
+* **Belirli Bir Konuyu Tara:** `./run.sh history --topic 5914`
+* **Önceden İndirilenleri Sıfırdan Tekrar İndir:** `./run.sh history --force`
+* **Konuları Listele:** `./run.sh list-topics`
+* **Seçmeli Mod:** `./run.sh interactive`
 
 ---
 
@@ -142,21 +98,15 @@ Veritabanında kayıtlı aktarımların özetini görüntüler:
 
 Pardus veya Debian sunucunuzda uygulamanın sürekli (arka planda) çalışması için `systemd` servisi olarak tanımlayabilirsiniz:
 
-1. `telegram-syncer.service` dosyasındaki dizin yollarını kontrol edin:
-   ```bash
-   nano telegram-syncer.service
-   ```
+1. `telegram-syncer.service` dosyasındaki dizin yollarını kontrol edin.
 2. Servis dosyasını sistem dizinine kopyalayın:
    ```bash
    sudo cp telegram-syncer.service /etc/systemd/system/
-   ```
-3. Servisi aktifleştirin ve başlatın:
-   ```bash
    sudo systemctl daemon-reload
    sudo systemctl enable telegram-syncer
    sudo systemctl start telegram-syncer
    ```
-4. Canlı logları izlemek için:
+3. Canlı logları izlemek için:
    ```bash
    journalctl -u telegram-syncer -f
    ```

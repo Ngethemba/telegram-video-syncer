@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Telegram Video Syncer Hızlı Başlatıcı (Pardus / Debian)
+# Telegram Medya Aktarıcı Hızlı Başlatıcı (Pardus / Debian)
 # ==============================================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -16,5 +16,9 @@ else
     exit 1
 fi
 
-# Uygulamayı çalıştır ve argümanları ilet
-python3 main.py "$@"
+# Eğer hiçbir argüman verilmediyse doğrudan İnteraktif Menüyü aç
+if [ $# -eq 0 ]; then
+    python3 app_menu.py
+else
+    python3 main.py "$@"
+fi
