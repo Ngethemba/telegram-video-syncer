@@ -60,13 +60,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Telegram Medya Aktarıcı</h1>
-            <span style="font-size: 13px; background: #334155; padding: 4px 10px; border-radius: 20px;">Pardus / Debian</span>
+            <h1>Telegram Medya Aktarici</h1>
+            <span style="font-size: 13px; background: #334155; padding: 4px 10px; border-radius: 20px;">Linux / Windows</span>
         </div>
 
         <div class="grid">
             <div class="stat-card">
-                <h3>Toplam İşlenen</h3>
+                <h3>Toplam Islenen</h3>
                 <div class="val" id="stat-total">0</div>
             </div>
             <div class="stat-card">
@@ -74,31 +74,31 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <div class="val" style="color: var(--success);" id="stat-completed">0</div>
             </div>
             <div class="stat-card">
-                <h3>Hatalı / Bekleyen</h3>
+                <h3>Hatali / Bekleyen</h3>
                 <div class="val" style="color: var(--warning);" id="stat-failed">0</div>
             </div>
             <div class="stat-card">
-                <h3>Aktarılan Veri</h3>
+                <h3>Aktarilan Veri</h3>
                 <div class="val" style="color: var(--primary);" id="stat-bytes">0 MB</div>
             </div>
         </div>
 
         <div class="card">
-            <h2>⚡ Hızlı İşlemler</h2>
+            <h2>Hizli Islemler</h2>
             <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
-                Aşağıdaki butonları kullanarak terminal komutları yazmadan işlemleri başlatabilirsiniz:
+                Asagidaki butonlari kullanarak terminal komutlari yazmadan islemleri baslatabilirsiniz:
             </p>
             <div class="btn-group">
-                <button class="btn-success" onclick="runCommand('history')">📚 Geçmişi Tara & Aktar</button>
-                <button class="btn-primary" onclick="runCommand('live')">📡 Canlı İzlemeyi Başlat</button>
-                <button class="btn-warning" onclick="runCommand('list-topics')">📑 Konuları (Topic) Listele</button>
-                <button class="btn-danger" onclick="runCommand('retry-failed')">🔄 Hatalıları Tekrar Dene</button>
+                <button class="btn-success" onclick="runCommand('history')">Gecmisi Tara ve Aktar</button>
+                <button class="btn-primary" onclick="runCommand('live')">Canli Izlemeyi Baslat</button>
+                <button class="btn-warning" onclick="runCommand('list-topics')">Konulari (Topic) Listele</button>
+                <button class="btn-danger" onclick="runCommand('retry-failed')">Hatalilari Tekrar Dene</button>
             </div>
             <div id="cmd-status" style="margin-top: 12px; font-size: 14px; font-weight: 500;"></div>
         </div>
 
         <div class="card">
-            <h2>⚙️ Ayarlar (.env Yapılandırması)</h2>
+            <h2>Ayarlar (.env Yapilandirmasi)</h2>
             <div id="alert-msg" class="alert alert-success">Ayarlar başarıyla kaydedildi!</div>
             <form id="settings-form">
                 <div class="form-group">

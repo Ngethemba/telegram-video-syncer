@@ -1,10 +1,10 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Telegram Medya Aktarıcı
-Comment=Telegram kanallarından kısıtlı video ve fotoğrafları indirip aktaran uygulama
+Name=Telegram Media Syncer
+Comment=Telegram channel media downloader and syncer for Linux
 Exec=bash -c "cd $(dirname %k) && ./run.sh"
 Icon=telegram
 Terminal=true
 Categories=Network;Utility;
-Keywords=telegram;video;downloader;sync;pardus;
+Keywords=telegram;video;photo;downloader;sync;linux;

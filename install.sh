@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Telegram Video İndirici & Aktarıcı - Pardus / Debian Kurulum Betiği
+# Telegram Media Syncer - Linux Kurulum Betigi
 # ==============================================================================
 
 set -e
@@ -10,59 +10,56 @@ GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${CYAN}====================================================${NC}"
-echo -e "${CYAN}🐧 Pardus / Debian Telegram Video Syncer Kurulumu 🐧${NC}"
+echo -e "${CYAN}Telegram Media Syncer - Linux Kurulumu${NC}"
 echo -e "${CYAN}====================================================${NC}"
 
-# 1. Root / Sudo kontrolü ve Sistem Paketlerinin Yüklenmesi
-echo -e "\n${YELLOW}[1/4] Sistem bağımlılıkları (Python, FFmpeg, Git) kontrol ediliyor...${NC}"
+# 1. Paket Yoneticisi ve Bagimliliklar
+echo -e "\n${YELLOW}[1/4] Sistem bagimliliklari (Python, FFmpeg, Git) kontrol ediliyor...${NC}"
 
 if command -v apt-get &> /dev/null; then
     sudo apt-get update -y
     sudo apt-get install -y python3 python3-pip python3-venv ffmpeg git
+elif command -v dnf &> /dev/null; then
+    sudo dnf install -y python3 python3-pip ffmpeg git
+elif command -v pacman &> /dev/null; then
+    sudo pacman -Sy --noconfirm python python-pip ffmpeg git
 else
-    echo -e "${YELLOW}apt-get bulunamadı, sistem paketlerinin önceden kurulu olduğu varsayılıyor.${NC}"
+    echo -e "${YELLOW}Paket yoneticisi bulunamadi, sistem paketlerinin kurulu oldugu varsayiliyor.${NC}"
 fi
 
-# 2. Python Sanal Ortamının (venv) Oluşturulması
-echo -e "\n${YELLOW}[2/4] Python sanal ortamı (venv) oluşturuluyor...${NC}"
+# 2. Python Sanal Ortami
+echo -e "\n${YELLOW}[2/4] Python sanal ortami (venv) olusturuluyor...${NC}"
 if [ ! -d "venv" ]; then
     python3 -m venv venv
-    echo -e "${GREEN}✓ Sanal ortam (venv) başarıyla oluşturuldu.${NC}"
+    echo -e "${GREEN}[OK] Sanal ortam (venv) basariyla olusturuldu.${NC}"
 else
-    echo -e "${GREEN}✓ Mevcut sanal ortam (venv) bulundu.${NC}"
+    echo -e "${GREEN}[OK] Mevcut sanal ortam (venv) bulundu.${NC}"
 fi
 
-# 3. Python Bağımlılıklarının Kurulması
-echo -e "\n${YELLOW}[3/4] Python kütüphaneleri yükleniyor (Telethon, FFmpeg helper vb.)...${NC}"
+# 3. Bagimliliklar
+echo -e "\n${YELLOW}[3/4] Python kutuphaneleri yukleniyor...${NC}"
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-echo -e "${GREEN}✓ Tüm Python bağımlılıkları başarıyla yüklendi.${NC}"
+echo -e "${GREEN}[OK] Tum Python bagimliliklari basariyla yuklendi.${NC}"
 
-# 4. Yapılandırma Dosyası (.env) Kontrolü
-echo -e "\n${YELLOW}[4/4] Yapılandırma dosyası (.env) hazırlanıyor...${NC}"
+# 4. Yapilandirma Dosyasi
+echo -e "\n${YELLOW}[4/4] Yapilandirma dosyasi (.env) kontrol ediliyor...${NC}"
 if [ ! -f ".env" ]; then
     cp .env.example .env
-    echo -e "${GREEN}✓ '.env' dosyası '.env.example' şablonundan oluşturuldu.${NC}"
-    echo -e "${YELLOW}⚠️ LÜTFEN '.env' DOSYASINI DÜZENLEYEREK TELEGRAM API VE KANAL BİLGİLERİNİZİ GİRİN:${NC}"
-    echo -e "   nano .env"
+    echo -e "${GREEN}[OK] .env dosyasi .env.example sablonundan olusturuldu.${NC}"
 else
-    echo -e "${GREEN}✓ '.env' dosyası zaten mevcut.${NC}"
+    echo -e "${GREEN}[OK] .env dosyasi zaten mevcut.${NC}"
 fi
 
-# Çalıştırma izinlerini ver
+# Calistirma izinleri
 chmod +x run.sh || true
 
 echo -e "\n${GREEN}====================================================${NC}"
-echo -e "${GREEN}🎉 KURULUM BAŞARIYLA TAMAMLANDI! 🎉${NC}"
+echo -e "${GREEN}Kurulum Basariyla Tamamlandi!${NC}"
 echo -e "${GREEN}====================================================${NC}"
-echo -e "Kullanım Adımları:"
-echo -e " 1. Ayarları düzenleyin       : ${CYAN}nano .env${NC}"
-echo -e " 2. Canlı Modda Başlatın      : ${CYAN}./run.sh live${NC}"
-echo -e " 3. Geçmiş Videoları Aktarın  : ${CYAN}./run.sh history --limit 50${NC}"
-echo -e " 4. Seçmeli Modda Başlatın    : ${CYAN}./run.sh interactive${NC}"
-echo -e " 5. İstatistikleri İnceleyin  : ${CYAN}./run.sh status${NC}"
+echo -e "Uygulamayi baslatmak icin: ${CYAN}./run.sh${NC}"
 echo -e "====================================================\n"
