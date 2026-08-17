@@ -1,0 +1,25 @@
+[Unit]
+Description=Telegram Video Downloader & Syncer Daemon (Pardus / Debian)
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Kullanıcı adınızı buraya yazın (Örn: pardus veya debian kullanıcınız)
+User=root
+# Projenin kurulu olduğu dizinin tam yolu:
+WorkingDirectory=/root/telegram-video-syncer
+# Sanal ortamdaki python yolu ve çalıştırılacak mod:
+ExecStart=/root/telegram-video-syncer/venv/bin/python3 /root/telegram-video-syncer/main.py live
+
+# Kesintilerde otomatik yeniden başlatma
+Restart=always
+RestartSec=10
+
+# Standart çıktı ve hata logları
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telegram-syncer
+
+[Install]
+WantedBy=multi-user.target

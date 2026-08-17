@@ -1,0 +1,89 @@
+import asyncio
+import os
+import shutil
+import tempfile
+from pathlib import Path
+import unittest
+
+from database import DatabaseManager
+from config import AppConfig, _parse_channel_list, _parse_single_channel
+from media_helper import MediaHelper
+
+
+class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.db_path = Path(self.test_dir) / "test_syncer.db"
+        self.db = DatabaseManager(self.db_path)
+        await self.db.init_db()
+
+    async def asyncTearDown(self):
+        if Path(self.test_dir).exists():
+            shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    async def test_database_lifecycle_and_duplicate_prevention(self):
+        # 1. Kayıt oluştur
+        await self.db.register_or_update(
+            source_chat_id="-1001234567890",
+            source_msg_id=42,
+            file_unique_id="unique_vid_999",
+            file_name="sample_video.mp4",
+            file_size=10485760,  # 10 MB
+            duration=120,
+            status="PENDING",
+        )
+
+        rec = await self.db.get_record("-1001234567890", 42)
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["status"], "PENDING")
+        self.assertEqual(rec["file_size"], 10485760)
+
+        # 2. Tamamlandı kontrolü (Henüz tamamlanmadı)
+        self.assertFalse(await self.db.is_already_completed("-1001234567890", 42))
+
+        # 3. Durumu COMPLETED yap
+        await self.db.update_status(
+            source_chat_id="-1001234567890",
+            source_msg_id=42,
+            status="COMPLETED",
+            target_chat_id="-1009876543210",
+            target_msg_id=101,
+            target_topic_id=5,
+        )
+
+        # 4. Artık tamamlandı olarak dönmeli
+        self.assertTrue(await self.db.is_already_completed("-1001234567890", 42))
+        # Unique ID ile de mükerrer kontrolü çalışmalı
+        self.assertTrue(await self.db.is_already_completed("-1009999999999", 1, file_unique_id="unique_vid_999"))
+
+    async def test_database_stats(self):
+        await self.db.register_or_update("-1001", 1, "uid1", "v1.mp4", 5000, 10, "COMPLETED")
+        await self.db.update_status("-1001", 1, "COMPLETED")
+        await self.db.register_or_update("-1001", 2, "uid2", "v2.mp4", 7000, 10, "FAILED")
+        await self.db.update_status("-1001", 2, "FAILED", error_message="Network error", increment_retry=True)
+
+        stats = await self.db.get_stats()
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["completed"], 1)
+        self.assertEqual(stats["failed"], 1)
+        self.assertEqual(stats["total_bytes_transferred"], 5000)
+
+    def test_config_parsing(self):
+        channels = _parse_channel_list("-1001234567890, @testchannel, https://t.me/anotherchannel")
+        self.assertEqual(len(channels), 3)
+        self.assertEqual(channels[0], -1001234567890)
+        self.assertEqual(channels[1], "@testchannel")
+        self.assertEqual(channels[2], "@anotherchannel")
+
+        single = _parse_single_channel("https://t.me/targetchannel")
+        self.assertEqual(single, "@targetchannel")
+
+    def test_media_sanitization(self):
+        clean = MediaHelper.sanitize_filename("test / video: name * <?.mp4")
+        self.assertNotIn(":", clean)
+        self.assertNotIn("/", clean)
+        self.assertNotIn("*", clean)
+
+
+if __name__ == "__main__":
+    unittest.main()

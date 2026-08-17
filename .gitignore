@@ -1,0 +1,29 @@
+# Ortam Değişkenleri ve Gizli Bilgiler
+.env
+*.session
+*.session-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Veritabanı ve Medyalar
+*.db
+*.db-journal
+downloads/
+temp/
+thumbnails/
+
+# Loglar ve IDE
+*.log
+.vscode/
+.idea/
+.DS_Store
