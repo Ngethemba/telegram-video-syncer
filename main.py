@@ -9,7 +9,7 @@ from colorama import Fore, Style, init
 from telethon import TelegramClient, events
 from telethon.tl import types
 
-from config import config
+from config import config, _normalize_topic_id, _parse_topic_list
 from database import DatabaseManager
 from channel_helper import ChannelHelper
 from downloader import VideoDownloader
@@ -20,7 +20,7 @@ init(autoreset=True)
 
 
 class TelegramSyncerApp:
-    def __init__(self):
+    def __init__(self, override_topics: Optional[List[int]] = None):
         self.db = DatabaseManager(config.db_path)
         self.client = TelegramClient(
             config.session_name,
@@ -33,6 +33,7 @@ class TelegramSyncerApp:
         self.channel_helper = ChannelHelper(self.client)
         self.downloader = VideoDownloader(self.client, self.db)
         self.uploader = VideoUploader(self.client, self.db)
+        self.source_topic_ids = override_topics if override_topics is not None else config.source_topic_ids
         self._is_running = True
 
     async def initialize(self):
@@ -40,10 +41,12 @@ class TelegramSyncerApp:
         await self.db.init_db()
         print(Fore.CYAN + "🚀 Telegram istemcisi başlatılıyor...")
         
-        # Telethon başlatma (Gerekirse terminalden doğrulama kodu ister)
         await self.client.start(phone=config.phone if config.phone else None)
         me = await self.client.get_me()
         print(Fore.GREEN + f"✅ Başarıyla giriş yapıldı: {me.first_name} (@{me.username or me.id})")
+        
+        if self.source_topic_ids:
+            print(Fore.YELLOW + f"🎯 Kaynak Topic Filtresi Aktif: {self.source_topic_ids} (Yalnızca bu konulardaki videolar indirilecek)")
 
     async def process_single_message(
         self,
@@ -56,11 +59,20 @@ class TelegramSyncerApp:
         if not video_info:
             return False
 
+        # Kaynak Topic Filtresi Kontrolü
+        if self.source_topic_ids:
+            if not ChannelHelper.is_message_in_topics(message, self.source_topic_ids):
+                msg_topic = video_info.get("topic_id")
+                # İlgili topic değilse atla
+                return False
+
         file_size_mb = video_info["file_size"] / (1024 * 1024)
         file_name = video_info["file_name"]
         file_unique_id = video_info["file_unique_id"]
+        msg_topic = video_info.get("topic_id")
+        topic_str = f" [Topic/Konu: #{msg_topic}]" if msg_topic else ""
 
-        print(Fore.YELLOW + f"\n🎥 Video Tespit Edildi: [Kanal: {source_title}] [Msg #{message.id}]")
+        print(Fore.YELLOW + f"\n🎥 Video Tespit Edildi: [Kanal: {source_title}]{topic_str} [Msg #{message.id}]")
         print(f"   📁 Dosya Adı : {file_name}")
         print(f"   📦 Boyut     : {file_size_mb:.2f} MB")
         print(f"   ⏱️ Süre      : {video_info['duration']} sn")
@@ -105,6 +117,8 @@ class TelegramSyncerApp:
         """Canlı izleme modu: Kaynak kanalları dinler ve yeni videoları anında aktarır."""
         print(Fore.CYAN + "\n" + "=" * 60)
         print(Fore.CYAN + "📡 CANLI İZLEME MODU (LIVE MONITOR) BAŞLATILDI")
+        if self.source_topic_ids:
+            print(Fore.YELLOW + f"🎯 Yalnızca Hedef Kaynak Topic(ler): {self.source_topic_ids}")
         print(Fore.CYAN + "=" * 60)
 
         source_entities = []
@@ -118,7 +132,6 @@ class TelegramSyncerApp:
             except Exception as e:
                 print(Fore.RED + f"⚠️ Kaynak kanal çözümlenemedi ({src}): {e}")
 
-        # Hedef kanalı doğrula
         try:
             target_info = await self.channel_helper.get_chat_info(config.target_channel)
             print(Fore.GREEN + f"🎯 Hedef Kanal  : {target_info['title']} (ID: {target_info['id']})")
@@ -153,6 +166,8 @@ class TelegramSyncerApp:
         """Geçmiş tarama modu: Belirtilen limit kadar geçmiş mesajları tarar."""
         print(Fore.CYAN + "\n" + "=" * 60)
         print(Fore.CYAN + f"📚 GEÇMİŞ TARAMA MODU (Limit: {'Tümü' if limit == 0 else limit})")
+        if self.source_topic_ids:
+            print(Fore.YELLOW + f"🎯 Kaynak Topic(ler): {self.source_topic_ids}")
         print(Fore.CYAN + "=" * 60)
 
         for src in config.source_channels:
@@ -165,19 +180,39 @@ class TelegramSyncerApp:
                 processed_count = 0
                 synced_count = 0
 
-                async for message in self.client.iter_messages(entity, limit=effective_limit, reverse=reverse):
-                    if not self._is_running:
-                        break
+                # Eğer belirli topic ID'leri belirtilmişse doğrudan o topic'leri tara
+                if self.source_topic_ids:
+                    for topic_id in self.source_topic_ids:
+                        print(Fore.CYAN + f"   📂 Topic #{topic_id} taranıyor...")
+                        async for message in self.client.iter_messages(
+                            entity, limit=effective_limit, reply_to=topic_id, reverse=reverse
+                        ):
+                            if not self._is_running:
+                                break
+                            if message.media:
+                                processed_count += 1
+                                success = await self.process_single_message(
+                                    message=message,
+                                    source_chat_id=chat_info["id"],
+                                    source_title=chat_info["title"],
+                                )
+                                if success:
+                                    synced_count += 1
+                else:
+                    # Tüm kanalı tara
+                    async for message in self.client.iter_messages(entity, limit=effective_limit, reverse=reverse):
+                        if not self._is_running:
+                            break
 
-                    if message.media:
-                        processed_count += 1
-                        success = await self.process_single_message(
-                            message=message,
-                            source_chat_id=chat_info["id"],
-                            source_title=chat_info["title"],
-                        )
-                        if success:
-                            synced_count += 1
+                        if message.media:
+                            processed_count += 1
+                            success = await self.process_single_message(
+                                message=message,
+                                source_chat_id=chat_info["id"],
+                                source_title=chat_info["title"],
+                            )
+                            if success:
+                                synced_count += 1
 
                 print(Fore.GREEN + f"✅ {chat_info['title']} tamamlandı. (Toplam taranan medya: {processed_count}, Aktarılan: {synced_count})")
 
@@ -188,6 +223,8 @@ class TelegramSyncerApp:
         """Seçmeli mod: Kaynak kanaldaki videoları listeler ve kullanıcının seçmesini sağlar."""
         print(Fore.CYAN + "\n" + "=" * 60)
         print(Fore.CYAN + "📋 SEÇMELİ VİDEO AKTARIM MODU")
+        if self.source_topic_ids:
+            print(Fore.YELLOW + f"🎯 Filtrelenen Topic(ler): {self.source_topic_ids}")
         print(Fore.CYAN + "=" * 60)
 
         if len(config.source_channels) > 1:
@@ -206,28 +243,45 @@ class TelegramSyncerApp:
         print(Fore.YELLOW + f"\n🔍 '{chat_info['title']}' kanalından son videolar çekiliyor...")
 
         videos = []
-        async for message in self.client.iter_messages(chat_info["entity"], limit=50):
-            video_info = ChannelHelper.extract_video_info(message)
-            if video_info:
-                is_done = await self.db.is_already_completed(
-                    chat_info["id"], message.id, video_info["file_unique_id"]
-                )
-                videos.append({
-                    "message": message,
-                    "info": video_info,
-                    "is_done": is_done,
-                })
+        
+        # Topic filtreli mi yoksa genel mi çekilecek?
+        if self.source_topic_ids:
+            for tid in self.source_topic_ids:
+                async for message in self.client.iter_messages(chat_info["entity"], limit=50, reply_to=tid):
+                    video_info = ChannelHelper.extract_video_info(message)
+                    if video_info:
+                        is_done = await self.db.is_already_completed(
+                            chat_info["id"], message.id, video_info["file_unique_id"]
+                        )
+                        videos.append({
+                            "message": message,
+                            "info": video_info,
+                            "is_done": is_done,
+                        })
+        else:
+            async for message in self.client.iter_messages(chat_info["entity"], limit=50):
+                video_info = ChannelHelper.extract_video_info(message)
+                if video_info:
+                    is_done = await self.db.is_already_completed(
+                        chat_info["id"], message.id, video_info["file_unique_id"]
+                    )
+                    videos.append({
+                        "message": message,
+                        "info": video_info,
+                        "is_done": is_done,
+                    })
 
         if not videos:
-            print(Fore.RED + "❌ Kanalda uygun video bulunamadı.")
+            print(Fore.RED + "❌ Belirtilen kriterlerde uygun video bulunamadı.")
             return
 
         print(Fore.CYAN + f"\nBulunan Videolar (Son {len(videos)}):")
         for i, item in enumerate(videos, 1):
             info = item["info"]
             size_mb = info["file_size"] / (1024 * 1024)
-            status_tag = Fore.GREEN + "[AKTARRILMIŞ]" if item["is_done"] else Fore.YELLOW + "[BEKLİYOR]"
-            print(f"[{i:2d}] {status_tag} {info['file_name'][:40]:<40} | {size_mb:6.1f} MB | {info['duration']:4d}s (Msg #{item['message'].id})")
+            status_tag = Fore.GREEN + "[AKTARILMIŞ]" if item["is_done"] else Fore.YELLOW + "[BEKLİYOR]"
+            topic_label = f" [T:#{info['topic_id']}]" if info.get("topic_id") else ""
+            print(f"[{i:2d}] {status_tag}{topic_label} {info['file_name'][:35]:<35} | {size_mb:6.1f} MB | {info['duration']:4d}s (Msg #{item['message'].id})")
 
         print("\nİşlem yapmak istediğiniz video numaralarını girin.")
         print("Örnekler: '1,3,5' veya '1-5' veya 'hepsi'")
@@ -324,6 +378,13 @@ async def main():
         help="Geçmiş tarama modu için taranacak mesaj sayısı (0 = tüm geçmiş)",
     )
     parser.add_argument(
+        "--topic",
+        "--source-topic",
+        type=str,
+        default="",
+        help="Kaynak kanaldan yalnızca belirli bir Topic/Konu ID'sini indirmek için (Örn: 4294973210 veya 5914)",
+    )
+    parser.add_argument(
         "--reverse",
         action="store_true",
         default=True,
@@ -341,7 +402,10 @@ async def main():
             print(Fore.YELLOW + "Lütfen .env dosyasını doldurduğunuzdan emin olun. (.env.example dosyasını kopyalayabilirsiniz)")
             sys.exit(1)
 
-    app = TelegramSyncerApp()
+    # CLI üzerinden topic parametresi geldiyse onu öncelikli kıl
+    cli_topics = _parse_topic_list(args.topic) if args.topic else None
+
+    app = TelegramSyncerApp(override_topics=cli_topics)
 
     # Graceful shutdown handler
     loop = asyncio.get_running_loop()
@@ -354,7 +418,6 @@ async def main():
         try:
             loop.add_signal_handler(sig, signal_handler)
         except NotImplementedError:
-            # Windows uyumluluğu için
             pass
 
     await app.initialize()

@@ -6,8 +6,9 @@ from pathlib import Path
 import unittest
 
 from database import DatabaseManager
-from config import AppConfig, _parse_channel_list, _parse_single_channel
+from config import AppConfig, _parse_channel_list, _parse_single_channel, _normalize_topic_id, _parse_topic_list
 from media_helper import MediaHelper
+from channel_helper import ChannelHelper
 
 
 class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
@@ -77,6 +78,21 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
 
         single = _parse_single_channel("https://t.me/targetchannel")
         self.assertEqual(single, "@targetchannel")
+
+    def test_topic_normalization(self):
+        # 4294973210 = 4294967296 + 5914 (Telegram Web URL formatı)
+        normalized = _normalize_topic_id(4294973210)
+        self.assertEqual(normalized, 5914)
+
+        from_url_param = _normalize_topic_id("&thread=4294973210")
+        self.assertEqual(from_url_param, 5914)
+
+        standard_id = _normalize_topic_id(5914)
+        self.assertEqual(standard_id, 5914)
+
+        topics = _parse_topic_list("4294973210, 1234, thread=4294973210")
+        self.assertIn(5914, topics)
+        self.assertIn(1234, topics)
 
     def test_media_sanitization(self):
         clean = MediaHelper.sanitize_filename("test / video: name * <?.mp4")

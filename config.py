@@ -12,6 +12,26 @@ def _str_to_bool(value: str) -> bool:
     return str(value).lower() in ("true", "1", "yes", "on", "t")
 
 
+def _normalize_topic_id(raw_id: Union[int, str]) -> int:
+    """
+    Telegram Web URL'lerinden gelen 64-bit topic ID'lerini (örn: 4294973210 veya thread=4294973210)
+    ve standart topic ID'lerini (örn: 5914) normalize eder.
+    """
+    try:
+        if isinstance(raw_id, str):
+            raw_id = raw_id.strip()
+            if "thread=" in raw_id:
+                raw_id = raw_id.split("thread=")[-1].split("&")[0]
+            if "topic/" in raw_id:
+                raw_id = raw_id.split("topic/")[-1].split("?")[0].split("/")[0]
+        val = int(raw_id)
+        if val > 4294967296:
+            return val % 4294967296
+        return val
+    except Exception:
+        return 0
+
+
 def _parse_channel_list(value: str) -> List[Union[int, str]]:
     if not value:
         return []
@@ -47,6 +67,20 @@ def _parse_single_channel(value: str) -> Union[int, str]:
     return item
 
 
+def _parse_topic_list(value: str) -> List[int]:
+    if not value:
+        return []
+    topics = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        tid = _normalize_topic_id(item)
+        if tid > 0:
+            topics.append(tid)
+    return topics
+
+
 @dataclass
 class AppConfig:
     # Telegram API
@@ -59,11 +93,16 @@ class AppConfig:
     source_channels: List[Union[int, str]] = field(
         default_factory=lambda: _parse_channel_list(os.getenv("SOURCE_CHANNELS", ""))
     )
+    # Kaynak Kanal Topic/Konu ID Filtresi (Opsiyonel: boşsa tüm topicler indirilir)
+    source_topic_ids: List[int] = field(
+        default_factory=lambda: _parse_topic_list(os.getenv("SOURCE_TOPIC_IDS", ""))
+    )
+
     target_channel: Union[int, str] = field(
         default_factory=lambda: _parse_single_channel(os.getenv("TARGET_CHANNEL", ""))
     )
     target_topic_id: int = field(
-        default_factory=lambda: int(os.getenv("TARGET_TOPIC_ID", "0"))
+        default_factory=lambda: _normalize_topic_id(os.getenv("TARGET_TOPIC_ID", "0"))
     )
 
     # İndirme & Yükleme

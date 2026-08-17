@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from telethon import TelegramClient
 from telethon.tl import types
 from telethon.tl.functions.messages import GetForumTopicsRequest
@@ -9,6 +9,68 @@ class ChannelHelper:
 
     def __init__(self, client: TelegramClient):
         self.client = client
+
+    @staticmethod
+    def normalize_topic_id(raw_id: Union[int, str]) -> int:
+        """
+        Telegram Web URL'lerinden gelen 64-bit topic ID'lerini (örn: 4294973210 veya thread=4294973210)
+        ve standart MTProto topic ID'lerini (örn: 5914) çözer ve normalize eder.
+        """
+        try:
+            if isinstance(raw_id, str):
+                raw_id = raw_id.strip()
+                if "thread=" in raw_id:
+                    raw_id = raw_id.split("thread=")[-1].split("&")[0]
+                if "topic/" in raw_id:
+                    raw_id = raw_id.split("topic/")[-1].split("?")[0].split("/")[0]
+            val = int(raw_id)
+            if val > 4294967296:
+                return val % 4294967296  # Telegram Web ID (2^32 bit) -> gerçek Topic ID
+            return val
+        except Exception:
+            return 0
+
+    @staticmethod
+    def get_message_topic_id(message: types.Message) -> Optional[int]:
+        """Mesajın ait olduğu topic (konu/thread) ID'sini tespit eder."""
+        if not message:
+            return None
+
+        # Telethon'da forum konularındaki mesajlar reply_to başlığı taşır
+        if message.reply_to:
+            # reply_to_top_id forum başlığının kök mesaj ID'sidir (Topic ID)
+            top_id = getattr(message.reply_to, "reply_to_top_id", None)
+            if top_id:
+                return top_id
+
+            # Eğer forum_topic True ise reply_to_msg_id doğrudan Topic ID olabilir
+            if getattr(message.reply_to, "forum_topic", False):
+                return getattr(message.reply_to, "reply_to_msg_id", None)
+
+            # Doğrudan reply_to_msg_id
+            msg_id = getattr(message.reply_to, "reply_to_msg_id", None)
+            if msg_id:
+                return msg_id
+
+        return None
+
+    @staticmethod
+    def is_message_in_topics(message: types.Message, allowed_topic_ids: List[int]) -> bool:
+        """Mesajın izin verilen topic ID'lerinden birine ait olup olmadığını kontrol eder."""
+        if not allowed_topic_ids:
+            return True  # Filtre yoksa tüm topic'ler geçerli
+
+        msg_topic = ChannelHelper.get_message_topic_id(message)
+        if msg_topic is None:
+            # Topic'siz ana mesajlar. Eğer listede 0 varsa izin ver, yoksa atla
+            return 0 in allowed_topic_ids
+
+        normalized_msg_topic = ChannelHelper.normalize_topic_id(msg_topic)
+        for allowed in allowed_topic_ids:
+            norm_allowed = ChannelHelper.normalize_topic_id(allowed)
+            if normalized_msg_topic == norm_allowed or msg_topic == allowed:
+                return True
+        return False
 
     async def get_chat_info(self, chat_peer: Union[int, str]) -> Dict[str, Any]:
         """
@@ -22,7 +84,6 @@ class ChannelHelper:
         is_megagroup = getattr(entity, "megagroup", False)
         
         # Forum/Topic Modu Kontrolü
-        # Telegram'da forum modundaki kanallar/gruplar forum=True özelliğine sahiptir.
         is_forum = getattr(entity, "forum", False)
 
         # İçerik koruması / indirme yasağı (noforwards)
@@ -120,6 +181,7 @@ class ChannelHelper:
             file_name = f"video_{message.id}_{doc.id}{ext}"
 
         file_unique_id = f"{doc.id}_{doc.access_hash}"
+        topic_id = ChannelHelper.get_message_topic_id(message)
 
         return {
             "document": doc,
@@ -131,4 +193,5 @@ class ChannelHelper:
             "height": height,
             "mime_type": mime_type,
             "caption": message.text or "",
+            "topic_id": topic_id,
         }

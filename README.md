@@ -7,7 +7,10 @@ Telegram kanallarından ve gruplarından (içerik kopyalama/indirme yasağı ola
 ## 🌟 Öne Çıkan Yetenekler
 
 - 🔒 **Kısıtlı / Yasaklı Kanal Desteği (Restricted Content):** Telegram Bot API'nin aksine MTProto istemcisi (Telethon) kullandığından, kopyalama yasağı (`noforwards` / `protected_content`) bulunan kanallardaki videoları doğrudan stream ederek kaydeder ve aktarır.
-- 💬 **Forum & Topic (Konu) Desteği:** Hedef kanalın veya grubun Forum modunda olup olmadığını otomatik tespit eder. Videoları belirlenen Topic ID (`TARGET_TOPIC_ID`) konusuna yükler.
+- 💬 **Gelişmiş Forum & Topic (Konu) Filtreleme:** 
+  - **Kaynak Topic Filtresi:** Kaynak kanaldaki tüm konuları değil, yalnızca istediğiniz belirli Topic/Konu ID'lerindeki videoları indirme imkanı.
+  - **Telegram Web URL Desteği:** Telegram Web'deki URL'de görünen `&thread=4294973210` şeklindeki 64-bit ID'leri otomatik algılar ve gerçek Topic ID'sine (örn: `5914`) normalize eder.
+  - **Hedef Topic Yükleme:** Videoları hedef kanaldaki istediğiniz Topic/Konu başlığına otomatik yükler.
 - 🗄️ **SQLite Tabanlı Mükerrer Engelleme:** İndirilen ve yüklenen her videonun mesaj ID'si, dosya benzersiz kimliği (`file_unique_id`) ve boyutu veritabanında tutulur. Aynı video asla iki kez indirilmez veya yüklenmez.
 - 🔄 **Akıllı Hata Yakalama & FloodWait:** Ağ kopmalarında veya Telegram hız sınırlarında (`FloodWaitError`) otomatik bekler ve logaritmik artan aralıklarla (exponential backoff) tekrar dener.
 - 🎬 **FFmpeg Küçük Resim (Thumbnail) & Metadata:** Videolardan otomatik kapak resmi üretir, süre ve çözünürlük bilgilerini Telegram video oynatıcısına uygun formatta aktarır.
@@ -30,8 +33,8 @@ Debian veya Pardus bilgisayarınızda terminali açın ve şu adımları izleyin
 
 ### 1. Projeyi Klonlayın
 ```bash
-git clone https://github.com/KULLANICI_ADINIZ/REPO_ADINIZ.git
-cd REPO_ADINIZ
+git clone https://github.com/Ngethemba/telegram-video-syncer.git
+cd telegram-video-syncer
 ```
 
 ### 2. Kurulum Betiğini Çalıştırın
@@ -63,13 +66,41 @@ nano .env
 | `TELEGRAM_API_HASH` | Telegram API Hash | `0123456789abcdef0123456789abcdef` |
 | `TELEGRAM_PHONE` | Hesabınızın telefon numarası | `+905551234567` |
 | `SOURCE_CHANNELS` | İzlenecek kaynak kanal(lar) (virgülle ayrılmış) | `-1001234567890, @kaynak_kanal` |
+| `SOURCE_TOPIC_IDS` | **Kaynakta Yalnızca Belirli Topic(ler)i İndir** (Boşsa tümü) | `4294973210` veya `5914, 123` |
 | `TARGET_CHANNEL` | Videoların yükleneceği hedef kanal | `-1009876543210` veya `@hedef_kanal` |
-| `TARGET_TOPIC_ID` | Hedef kanal Forum ise yüklenecek Konu/Topic ID | `5` (Ana kanal için `0`) |
+| `TARGET_TOPIC_ID` | Hedef kanal Forum ise yüklenecek Konu/Topic ID | `4294973210` veya `5` (Ana kanal için `0`) |
 | `AUTO_CLEANUP` | Yüklenen videoları diskten sil | `true` |
 | `MAX_FILE_SIZE_MB` | Maksimum dosya boyutu (MB) (0 = sınırsız) | `0` |
 | `MIN_DURATION_SECONDS` | Minimum video süresi (saniye) (0 = sınırsız) | `0` |
 | `MAX_RETRIES` | Başarısız işlemlerde tekrar deneme sayısı | `5` |
 | `DELAY_BETWEEN_UPLOADS` | İki yükleme arası bekleme (saniye) | `3` |
+
+---
+
+## 🎯 Kaynak Topic (Konu) Filtreleme Nasıl Yapılır?
+
+Kaynak kanalda birden fazla topic/konu varsa ve siz yalnızca belirli bir konudaki videoları almak istiyorsanız:
+
+1. **Yöntem 1: `.env` Dosyasından Sabitleme**
+   - `.env` dosyanızı açın:
+     ```bash
+     SOURCE_TOPIC_IDS=4294973210
+     ```
+   *(Telegram Web linkindeki `&thread=4294973210` sayısını doğrudan yapıştırabilirsiniz, uygulama bunu otomatik olarak tanır).*
+
+2. **Yöntem 2: Komut Satırından Anlık Belirtme (`--topic`)**
+   - Canlı izleme:
+     ```bash
+     ./run.sh live --topic 4294973210
+     ```
+   - Geçmiş tarama (Yalnızca bu konudaki videoları tarar):
+     ```bash
+     ./run.sh history --topic 4294973210 --limit 50
+     ```
+   - Seçmeli aktarım:
+     ```bash
+     ./run.sh interactive --topic 4294973210
+     ```
 
 ---
 
@@ -92,7 +123,7 @@ Kaynak kanaldaki geçmiş mesajları tarar ve henüz aktarılmamış tüm videol
 ```
 
 ### 3. Seçmeli Aktarım Modu (Interactive Mode)
-Kaynak kanaldaki son videoları başlık, süre ve boyutlarıyla listeler. Terminal üzerinden istediğiniz videoları seçmenizi sağlar (örn: `1,3,5` veya `1-10` veya `hepsi`).
+Kaynak kanaldaki son videoları başlık, konu, süre ve boyutlarıyla listeler. Terminal üzerinden istediğiniz videoları seçmenizi sağlar (örn: `1,3,5` veya `1-10` veya `hepsi`).
 ```bash
 ./run.sh interactive
 ```
@@ -138,10 +169,10 @@ Pardus veya Debian sunucunuzda uygulamanın sürekli (arka planda) çalışması
 
 ## 💡 İpuçları ve Sıkça Sorulan Sorular
 
+- **Telegram Web'deki `thread=4294973210` nedir?**
+  - Telegram Web K, konu (thread) ID'lerini 64-bit formatında gösterir (`4294967296 + 5914`). Uygulamamız bu sayıyı otomatik olarak gerçek konu ID'sine (`5914`) dönüştürür. URL'de gördüğünüz sayıyı aynen kopyalayıp kullanabilirsiniz.
 - **Kanal ID'sini nasıl öğrenebilirim?**
   - Telegram Web'de kanalı açtığınızda URL adresindeki `https://web.telegram.org/k/#-100XXXXXXXXXX` ifadesinde yer alan `-100` ile başlayan sayı kanal ID'nizdir.
   - Veya `@username` kullanıcı adını doğrudan `.env` içinde kullanabilirsiniz.
 - **Kısıtlı kanaldan indirirken banlanır mıyım?**
   - Uygulama resmi Telegram MTProto istemci protokolünü kullanır ve FloodWait koruması içerir. Ancak çok yüksek hacimli işlemlerde `DELAY_BETWEEN_UPLOADS` süresini 3-5 saniye tutmanız tavsiye edilir.
-- **İlk girişte ne yapmalıyım?**
-  - İlk kez `./run.sh live` çalıştırdığınızda Telegram telefonunuza gelen onay kodunu (ve varsa 2FA şifrenizi) terminale girmeniz istenir. Oturum `.session` dosyasına kaydedilir ve sonraki çalıştırmalarda tekrar kod istemez.
