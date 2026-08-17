@@ -341,6 +341,40 @@ class TelegramSyncerApp:
             except Exception as e:
                 print(Fore.RED + f"❌ Msg #{rec['source_msg_id']} yeniden denenirken hata: {e}")
 
+    async def list_source_topics(self):
+        """Kaynak kanallardaki tüm topic (konu) başlıklarını ve ID'lerini listeler."""
+        print(Fore.CYAN + "\n" + "=" * 60)
+        print(Fore.CYAN + "📑 KAYNAK KANAL TOPIC (KONU) LİSTESİ")
+        print(Fore.CYAN + "=" * 60)
+
+        for src in config.source_channels:
+            try:
+                chat_info = await self.channel_helper.get_chat_info(src)
+                print(Fore.YELLOW + f"\n📢 Kanal: {chat_info['title']} (ID: {chat_info['id']})")
+                
+                if not chat_info["is_forum"]:
+                    print("   ℹ️ Bu kanal Forum modunda değil (Standart kanal).")
+                    continue
+
+                topics = await self.channel_helper.list_forum_topics(chat_info["entity"], limit=100)
+                if not topics:
+                    print(Fore.RED + "   ❌ Konu başlığı bulunamadı veya yetki yetersiz.")
+                    continue
+
+                print(Fore.GREEN + f"   Toplam {len(topics)} konu bulundu:\n")
+                print(f"   {'No':<4} | {'Topic ID':<10} | {'Konu Başlığı'}")
+                print("   " + "-" * 55)
+                for idx, t in enumerate(topics, 1):
+                    print(f"   [{idx:2d}] | ID: {t['id']:<6} | {t['title']}")
+
+                print(Fore.CYAN + "\n💡 İpucu: İndirmek istediğiniz konuların ID'lerini .env dosyasına yazabilirsiniz:")
+                sample_ids = ", ".join(str(t['id']) for t in topics[:2])
+                print(f"   SOURCE_TOPIC_IDS={sample_ids}")
+                print(Fore.CYAN + "   Veya komutla tek seferlik çalıştırabilirsiniz:")
+                print(f"   ./run.sh live --topic {topics[0]['id']}")
+            except Exception as e:
+                print(Fore.RED + f"❌ Kanal incelenirken hata ({src}): {e}")
+
     async def show_status(self):
         """Veritabanı ve aktarım istatistiklerini görüntüler."""
         stats = await self.db.get_stats()
@@ -366,10 +400,10 @@ async def main():
     )
     parser.add_argument(
         "mode",
-        choices=["live", "history", "interactive", "status", "retry-failed"],
+        choices=["live", "history", "interactive", "status", "retry-failed", "list-topics"],
         nargs="?",
         default="live",
-        help="Çalışma modu: live (canlı izleme), history (geçmiş tarama), interactive (seçmeli), status (istatistik), retry-failed (hatalıları tekrar dene)",
+        help="Çalışma modu: live, history, interactive, status, retry-failed, list-topics (konuları listele)",
     )
     parser.add_argument(
         "--limit",
@@ -394,7 +428,7 @@ async def main():
     args = parser.parse_args()
 
     # Yapılandırmayı doğrula (status modu hariç)
-    if args.mode != "status":
+    if args.mode not in ("status", "list-topics"):
         try:
             config.validate()
         except ValueError as e:
@@ -433,6 +467,8 @@ async def main():
             await app.run_retry_failed()
         elif args.mode == "status":
             await app.show_status()
+        elif args.mode == "list-topics":
+            await app.list_source_topics()
     finally:
         await app.client.disconnect()
         print(Fore.CYAN + "👋 Oturum kapatıldı.")
