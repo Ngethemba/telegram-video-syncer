@@ -72,11 +72,36 @@ class ChannelHelper:
                 return True
         return False
 
+    async def resolve_peer_entity(self, chat_peer: Union[int, str]):
+        """Kanal veya grup varlığını güvenli şekilde çözümler (-100 eksik girilse bile düzeltir)."""
+        # 1. Doğrudan dene
+        try:
+            return await self.client.get_entity(chat_peer)
+        except Exception:
+            pass
+
+        # 2. String/Int ise -100 prefixi veya PeerChannel ile dene
+        peer_str = str(chat_peer).strip().replace("@", "")
+        if peer_str.replace("-", "").isdigit():
+            clean_digits = peer_str.replace("-", "")
+            if not peer_str.startswith("-100"):
+                try:
+                    return await self.client.get_entity(int(f"-100{clean_digits}"))
+                except Exception:
+                    pass
+            try:
+                return await self.client.get_entity(types.PeerChannel(int(clean_digits)))
+            except Exception:
+                pass
+
+        # 3. Son olarak asıl çağrıyı yapıp hatayı fırlat
+        return await self.client.get_entity(chat_peer)
+
     async def get_chat_info(self, chat_peer: Union[int, str]) -> Dict[str, Any]:
         """
         Kanalın/grubun temel bilgilerini, kısıtlılık durumunu ve Forum modunu çözümler.
         """
-        entity = await self.client.get_entity(chat_peer)
+        entity = await self.resolve_peer_entity(chat_peer)
 
         title = getattr(entity, "title", str(chat_peer))
         username = getattr(entity, "username", None)
@@ -103,7 +128,7 @@ class ChannelHelper:
     async def list_forum_topics(self, chat_peer: Union[int, str], limit: int = 50) -> list:
         """Kanal forum modundaysa mevcut topic (konu) listesini döner."""
         try:
-            entity = await self.client.get_entity(chat_peer)
+            entity = await self.resolve_peer_entity(chat_peer)
             if not getattr(entity, "forum", False):
                 return []
 

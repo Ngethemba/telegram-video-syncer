@@ -32,39 +32,48 @@ def _normalize_topic_id(raw_id: Union[int, str]) -> int:
         return 0
 
 
+def _format_channel_id(item: str) -> Union[int, str]:
+    """
+    Kanal kimliklerini çözümler. Telegram Web'den gelen eksik -100 prefixlerini otomatik tamamlar.
+    Örn: -2599602307 veya 2599602307 -> -1002599602307
+    """
+    item = str(item).strip()
+    if not item:
+        return ""
+    
+    if "#" in item:
+        item = item.split("#")[-1]
+
+    if "t.me/" in item:
+        item = item.split("t.me/")[-1].replace("/", "")
+        if not item.startswith("@") and not item.startswith("-100"):
+            item = f"@{item}"
+
+    digits_only = item.replace("-", "").strip()
+    if digits_only.isdigit():
+        # Süper grup / Kanal ID'leri Telethon'da -100 ile başlamalıdır
+        if not item.startswith("-100"):
+            return int(f"-100{digits_only}")
+        return int(item)
+
+    return item
+
+
 def _parse_channel_list(value: str) -> List[Union[int, str]]:
     if not value:
         return []
     channels = []
     for item in value.split(","):
-        item = item.strip()
-        if not item:
-            continue
-        # Link ise kullanıcı adını veya t.me formatını ayıkla
-        if "t.me/" in item:
-            item = item.split("t.me/")[-1].replace("/", "")
-            if not item.startswith("@") and not item.startswith("-100"):
-                item = f"@{item}"
-        
-        # Sayısal chat_id ise integer'a çevir
-        if (item.startswith("-") or item.isdigit()) and item.replace("-", "").isdigit():
-            channels.append(int(item))
-        else:
-            channels.append(item)
+        formatted = _format_channel_id(item)
+        if formatted:
+            channels.append(formatted)
     return channels
 
 
 def _parse_single_channel(value: str) -> Union[int, str]:
     if not value:
         return ""
-    item = value.strip()
-    if "t.me/" in item:
-        item = item.split("t.me/")[-1].replace("/", "")
-        if not item.startswith("@") and not item.startswith("-100"):
-            item = f"@{item}"
-    if (item.startswith("-") or item.isdigit()) and item.replace("-", "").isdigit():
-        return int(item)
-    return item
+    return _format_channel_id(value)
 
 
 def _parse_topic_list(value: str) -> List[int]:
