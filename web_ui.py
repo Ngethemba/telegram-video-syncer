@@ -12,10 +12,12 @@ from urllib.parse import parse_qs, urlparse
 
 from config import config
 from database import DatabaseManager
+from channel_helper import ChannelHelper
+from telethon import TelegramClient
 
 
 class TaskManager:
-    """Arka plan işlemlerini yöneten ve çıktıları canlı toplayan sınıf."""
+    """Arka plan islemlerini yoneten ve ciktilari canli toplayan sinif."""
 
     def __init__(self):
         self.process = None
@@ -33,29 +35,33 @@ class TaskManager:
     def start_task(self, mode: str, topic: str = "", media_type: str = "", force: bool = False) -> bool:
         with self.lock:
             if self.process is not None and self.process.poll() is None:
-                return False  # Zaten çalışan bir işlem var
+                return False
 
             self.current_mode = mode
             self.logs.clear()
-            self._add_log(f"[INFO] '{mode}' islemi baslatiliyor...")
+            self._add_log(f"[INFO] '{mode}' islemi baslatildi.")
 
             cmd = [sys.executable, "-u", "main.py", mode]
             if topic:
-                cmd.extend(["--topic", topic])
+                cmd.extend(["--topic", str(topic).strip()])
             if media_type and media_type != "all":
                 cmd.extend(["--type", media_type])
             if force:
                 cmd.append("--force")
 
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
+
             try:
-                # Windows ve Linux için uyumlu subprocess başlatımı
                 self.process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
+                    stdin=subprocess.PIPE,
                     text=True,
                     bufsize=1,
                     universal_newlines=True,
+                    env=env,
                 )
             except Exception as e:
                 self._add_log(f"[ERROR] Islem baslatilamadi: {e}")
@@ -67,7 +73,6 @@ class TaskManager:
             return True
 
     def _read_output(self):
-        """Alt işlemin konsol çıktılarını anlık olarak okur."""
         try:
             for line in iter(self.process.stdout.readline, ""):
                 if line:
@@ -81,7 +86,7 @@ class TaskManager:
             else:
                 self._add_log(f"[INFO] '{self.current_mode}' islemi sonlandi (Kod: {rc}).")
         except Exception as ex:
-            self._add_log(f"[ERROR] Okuma hatasi: {ex}")
+            self._add_log(f"[ERROR] Konsol okuma hatasi: {ex}")
         finally:
             with self.lock:
                 self.current_mode = None
@@ -113,6 +118,52 @@ class TaskManager:
 
 
 task_manager = TaskManager()
+
+
+async def fetch_topics_async():
+    """Telegram istemcisini baslatip kaynak kanallardaki konulari ceker."""
+    client = TelegramClient(
+        config.session_name,
+        config.api_id,
+        config.api_hash,
+    )
+    try:
+        await client.start(phone=config.phone if config.phone else None)
+        helper = ChannelHelper(client)
+        results = []
+
+        for src in config.source_channels:
+            try:
+                info = await helper.get_chat_info(src)
+                topics = []
+                if info["is_forum"]:
+                    raw_topics = await helper.list_forum_topics(info["entity"], limit=100)
+                    for t in raw_topics:
+                        topics.append({
+                            "id": t["id"],
+                            "title": t["title"],
+                        })
+                results.append({
+                    "channel_title": info["title"],
+                    "channel_id": info["id"],
+                    "is_forum": info["is_forum"],
+                    "topics": topics,
+                })
+            except Exception as e:
+                results.append({
+                    "channel_title": str(src),
+                    "channel_id": str(src),
+                    "is_forum": False,
+                    "topics": [],
+                    "error": str(e)
+                })
+
+        return {"success": True, "channels": results}
+    except Exception as ex:
+        return {"success": False, "error": str(ex)}
+    finally:
+        await client.disconnect()
+
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="tr">
@@ -155,12 +206,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
         .btn-success { background: var(--success); color: white; }
-        .btn-warning { background: var(--warning); color: #1e293b; }
+        .btn-warning { background: var(--warning); color: #1e293b; font-weight: bold; }
         .btn-danger { background: var(--danger); color: white; }
         .btn-secondary { background: #334155; color: white; }
         .alert { padding: 12px; border-radius: 6px; margin-bottom: 16px; display: none; font-size: 14px; }
         .alert-success { background: rgba(16, 185, 129, 0.2); border: 1px solid var(--success); color: #34d399; }
-        .alert-danger { background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); color: #f87171; }
         
         /* Terminal Log Ekranı */
         .terminal-container { background: var(--terminal-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 16px; }
@@ -172,6 +222,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
         .status-idle { background: #334155; color: #cbd5e1; }
         .status-running { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+
+        /* Konu / Topic Tablosu */
+        .topic-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        .topic-table th, .topic-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; font-size: 13px; }
+        .topic-table th { background: #0f172a; color: var(--text-muted); }
+        .topic-table tr:hover { background: #0f172a; }
+        .badge-id { background: #334155; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; }
         .footer { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 24px; }
     </style>
 </head>
@@ -179,7 +236,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="container">
         <div class="header">
             <h1>Telegram Medya Aktarici</h1>
-            <span style="font-size: 12px; background: #334155; padding: 4px 10px; border-radius: 20px;">Linux / Windows</span>
+            <span style="font-size: 12px; background: #334155; padding: 4px 10px; border-radius: 20px;">Web Dashboard</span>
         </div>
 
         <div class="grid">
@@ -201,7 +258,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- HIZLI ISLEMLER & CANLI KONSOL -->
+        <!-- ISLEM KONTROLU VE CANLI KONSOL -->
         <div class="card">
             <h2>
                 <span>Islem Kontrolu ve Canli Konsol</span>
@@ -211,18 +268,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <div class="btn-group" style="margin-bottom: 16px;">
                 <button class="btn-success" id="btn-history" onclick="runAction('history')">Gecmisi Tara ve Aktar</button>
                 <button class="btn-primary" id="btn-live" onclick="runAction('live')">Canli Izlemeyi Baslat</button>
-                <button class="btn-warning" id="btn-topics" onclick="runAction('list-topics')">Konulari (Topic) Listele</button>
+                <button class="btn-warning" id="btn-topics" onclick="loadTopicsList()">Konulari (Topic) Listele</button>
                 <button class="btn-secondary" id="btn-retry" onclick="runAction('retry-failed')">Hatalilari Tekrar Dene</button>
                 <button class="btn-danger" id="btn-stop" onclick="stopAction()" disabled>Durdur (Stop)</button>
             </div>
 
             <!-- Parametre Secenekleri -->
             <div style="background: #0f172a; padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 16px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
-                <div style="flex: 1; min-width: 150px;">
-                    <label style="font-size: 12px;">Ozel Topic ID (Opsiyonel):</label>
+                <div style="flex: 1; min-width: 160px;">
+                    <label style="font-size: 12px;">Secili Topic ID:</label>
                     <input type="text" id="action-topic" placeholder="Orn: 5914 (Bos ise .env gecerli)" style="padding: 6px 10px; font-size: 13px;">
                 </div>
-                <div style="flex: 1; min-width: 150px;">
+                <div style="flex: 1; min-width: 160px;">
                     <label style="font-size: 12px;">Medya Turu:</label>
                     <select id="action-type" style="padding: 6px 10px; font-size: 13px;">
                         <option value="all">Tum Medyalar (Video + Foto)</option>
@@ -234,6 +291,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <input type="checkbox" id="action-force" style="width: auto;">
                     <label for="action-force" style="margin: 0; font-size: 12px; cursor: pointer;">Mukerrer Kontrolunu Atla (--force)</label>
                 </div>
+            </div>
+
+            <!-- TOPIC LISTELEME ALANI -->
+            <div id="topics-container" style="display: none; margin-bottom: 16px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <h3 style="font-size: 14px; color: var(--primary);">Kaynak Kanaldaki Konu (Topic) Basliklari</h3>
+                    <button class="btn-secondary" onclick="document.getElementById('topics-container').style.display='none'" style="padding: 3px 8px; font-size: 11px;">Kapat</button>
+                </div>
+                <div id="topics-loading" style="display: none; color: var(--warning); font-size: 13px;">Konular Telegram'dan cekiliyor, lutfen bekleyin...</div>
+                <div id="topics-content"></div>
             </div>
 
             <!-- CANLI TERMINAL KONSOLU -->
@@ -362,7 +429,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const data = await res.json();
                 const badge = document.getElementById('app-status-badge');
                 const btnStop = document.getElementById('btn-stop');
-                const actionBtns = ['btn-history', 'btn-live', 'btn-topics', 'btn-retry'];
+                const actionBtns = ['btn-history', 'btn-live', 'btn-retry'];
 
                 if (data.running) {
                     badge.className = 'status-badge status-running';
@@ -372,7 +439,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 } else {
                     badge.className = 'status-badge status-idle';
                     badge.innerText = 'DURUM: BEKLEMEDE (IDLE)';
-                    btnStop.disabled = true;
+                    btnStop.disabled = false;
                     actionBtns.forEach(id => document.getElementById(id).disabled = false);
                 }
             } catch(e) {}
@@ -392,7 +459,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             div.className = 'log-error';
                         } else if (line.includes('[WARN]') || line.includes('[WARNING]') || line.includes('[FLOODWAIT]')) {
                             div.className = 'log-warn';
-                        } else if (line.includes('[INFO]') || line.includes('[DETECTED]') || line.includes('[OK]')) {
+                        } else if (line.includes('[INFO]') || line.includes('[DETECTED]') || line.includes('[OK]') || line.includes('[AUTH]')) {
                             div.className = 'log-info';
                         }
                         div.innerText = line;
@@ -425,6 +492,68 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         async function stopAction() {
             await fetch('/api/stop', { method: 'POST' });
             checkStatus();
+        }
+
+        async function loadTopicsList() {
+            const container = document.getElementById('topics-container');
+            const loading = document.getElementById('topics-loading');
+            const content = document.getElementById('topics-content');
+
+            container.style.display = 'block';
+            loading.style.display = 'block';
+            content.innerHTML = '';
+
+            try {
+                const res = await fetch('/api/topics');
+                const data = await res.json();
+                loading.style.display = 'none';
+
+                if (!data.success) {
+                    content.innerHTML = `<div style="color: var(--danger); font-size: 13px;">Hata: ${data.error}</div>`;
+                    return;
+                }
+
+                let html = '';
+                data.channels.forEach(ch => {
+                    html += `<div style="margin-bottom: 12px;"><strong style="color: var(--text);">${ch.channel_title}</strong> (ID: ${ch.channel_id})`;
+                    if (!ch.is_forum) {
+                        html += ` <span style="color: var(--text-muted); font-size: 12px;">(Bu kanal forum modunda degil)</span>`;
+                    } else if (ch.topics.length === 0) {
+                        html += ` <span style="color: var(--warning); font-size: 12px;">(Konu bulunamadi)</span>`;
+                    } else {
+                        html += `<table class="topic-table">
+                            <thead>
+                                <tr>
+                                    <th>Topic ID</th>
+                                    <th>Konu Basligi</th>
+                                    <th>Islem</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+                        ch.topics.forEach(t => {
+                            html += `<tr>
+                                <td><span class="badge-id">#${t.id}</span></td>
+                                <td><strong>${t.title}</strong></td>
+                                <td>
+                                    <button class="btn-success" style="padding: 4px 10px; font-size: 12px;" onclick="selectAndSyncTopic(${t.id})">Bu Konuyu Sec ve Tara</button>
+                                </td>
+                            </tr>`;
+                        });
+                        html += `</tbody></table>`;
+                    }
+                    html += `</div>`;
+                });
+
+                content.innerHTML = html;
+            } catch(e) {
+                loading.style.display = 'none';
+                content.innerHTML = `<div style="color: var(--danger); font-size: 13px;">Baglanti hatasi: ${e}</div>`;
+            }
+        }
+
+        function selectAndSyncTopic(topicId) {
+            document.getElementById('action-topic').value = topicId;
+            runAction('history');
         }
 
         function clearLogs() {
@@ -470,6 +599,13 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"logs": new_logs, "next_index": total_len}).encode("utf-8"))
+
+        elif parsed.path == "/api/topics":
+            result = asyncio.run(fetch_topics_async())
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode("utf-8"))
 
         elif parsed.path == "/api/stats":
             db = DatabaseManager(config.db_path)
