@@ -13,6 +13,8 @@ if exist "venv\Scripts\activate.bat" (
 
 if "%~1"=="" (
     python app_menu.py
+) else if "%~1"=="web" (
+    python web_ui.py
 ) else (
     python main.py %*
 )
