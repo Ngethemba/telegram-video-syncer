@@ -1,9 +1,11 @@
 import asyncio
 import json
 import os
+import queue
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -11,16 +13,118 @@ from urllib.parse import parse_qs, urlparse
 from config import config
 from database import DatabaseManager
 
+
+class TaskManager:
+    """Arka plan işlemlerini yöneten ve çıktıları canlı toplayan sınıf."""
+
+    def __init__(self):
+        self.process = None
+        self.current_mode = None
+        self.logs = []
+        self.lock = threading.Lock()
+        self._reader_thread = None
+
+    def is_running(self) -> bool:
+        with self.lock:
+            if self.process is None:
+                return False
+            return self.process.poll() is None
+
+    def start_task(self, mode: str, topic: str = "", media_type: str = "", force: bool = False) -> bool:
+        with self.lock:
+            if self.process is not None and self.process.poll() is None:
+                return False  # Zaten çalışan bir işlem var
+
+            self.current_mode = mode
+            self.logs.clear()
+            self._add_log(f"[INFO] '{mode}' islemi baslatiliyor...")
+
+            cmd = [sys.executable, "-u", "main.py", mode]
+            if topic:
+                cmd.extend(["--topic", topic])
+            if media_type and media_type != "all":
+                cmd.extend(["--type", media_type])
+            if force:
+                cmd.append("--force")
+
+            try:
+                # Windows ve Linux için uyumlu subprocess başlatımı
+                self.process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                )
+            except Exception as e:
+                self._add_log(f"[ERROR] Islem baslatilamadi: {e}")
+                self.current_mode = None
+                return False
+
+            self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
+            self._reader_thread.start()
+            return True
+
+    def _read_output(self):
+        """Alt işlemin konsol çıktılarını anlık olarak okur."""
+        try:
+            for line in iter(self.process.stdout.readline, ""):
+                if line:
+                    clean_line = line.rstrip("\r\n")
+                    self._add_log(clean_line)
+            self.process.stdout.close()
+            self.process.wait()
+            rc = self.process.returncode
+            if rc == 0:
+                self._add_log(f"[DONE] '{self.current_mode}' islemi basariyla tamamlandi.")
+            else:
+                self._add_log(f"[INFO] '{self.current_mode}' islemi sonlandi (Kod: {rc}).")
+        except Exception as ex:
+            self._add_log(f"[ERROR] Okuma hatasi: {ex}")
+        finally:
+            with self.lock:
+                self.current_mode = None
+
+    def stop_task(self) -> bool:
+        with self.lock:
+            if self.process is None or self.process.poll() is not None:
+                return False
+            try:
+                self.process.terminate()
+                self._add_log("[WARNING] Islem kullanici tarafindan durduruldu.")
+                return True
+            except Exception as e:
+                self._add_log(f"[ERROR] Durdurma hatasi: {e}")
+                return False
+
+    def _add_log(self, text: str):
+        with self.lock:
+            timestamp = time.strftime("%H:%M:%S")
+            self.logs.append(f"[{timestamp}] {text}")
+            if len(self.logs) > 3000:
+                self.logs.pop(0)
+
+    def get_logs(self, since: int = 0):
+        with self.lock:
+            if since < len(self.logs):
+                return self.logs[since:], len(self.logs)
+            return [], len(self.logs)
+
+
+task_manager = TaskManager()
+
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Medya Aktarıcı - Kontrol Paneli</title>
+    <title>Telegram Medya Aktarici - Web Dashboard</title>
     <style>
         :root {
-            --bg-color: #0f172a;
+            --bg-color: #0b1120;
             --card-bg: #1e293b;
+            --terminal-bg: #030712;
             --primary: #3b82f6;
             --primary-hover: #2563eb;
             --success: #10b981;
@@ -32,28 +136,42 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
         body { background: var(--bg-color); color: var(--text); padding: 20px; line-height: 1.5; }
-        .container { max-width: 900px; margin: 0 auto; }
+        .container { max-width: 1000px; margin: 0 auto; }
         .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
-        .header h1 { font-size: 24px; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+        .header h1 { font-size: 22px; color: var(--primary); display: flex; align-items: center; gap: 8px; font-weight: 700; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: var(--card-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border); }
-        .stat-card h3 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
-        .stat-card .val { font-size: 26px; font-weight: bold; }
-        .card { background: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 24px; }
-        .card h2 { font-size: 18px; margin-bottom: 16px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .stat-card { background: var(--card-bg); padding: 16px; border-radius: 10px; border: 1px solid var(--border); }
+        .stat-card h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px; }
+        .stat-card .val { font-size: 24px; font-weight: bold; }
+        .card { background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 24px; }
+        .card h2 { font-size: 16px; margin-bottom: 16px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
         .form-group { margin-bottom: 14px; }
         label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 4px; font-weight: 500; }
-        input, select { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; }
+        input, select { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; }
         input:focus, select:focus { outline: none; border-color: var(--primary); }
-        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
-        button { cursor: pointer; padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; font-size: 14px; transition: 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        button { cursor: pointer; padding: 9px 18px; border-radius: 6px; border: none; font-weight: 600; font-size: 13px; transition: 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-primary { background: var(--primary); color: white; }
-        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
         .btn-success { background: var(--success); color: white; }
-        .btn-warning { background: var(--warning); color: white; }
+        .btn-warning { background: var(--warning); color: #1e293b; }
         .btn-danger { background: var(--danger); color: white; }
-        .alert { padding: 12px; border-radius: 8px; margin-bottom: 16px; display: none; }
+        .btn-secondary { background: #334155; color: white; }
+        .alert { padding: 12px; border-radius: 6px; margin-bottom: 16px; display: none; font-size: 14px; }
         .alert-success { background: rgba(16, 185, 129, 0.2); border: 1px solid var(--success); color: #34d399; }
+        .alert-danger { background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); color: #f87171; }
+        
+        /* Terminal Log Ekranı */
+        .terminal-container { background: var(--terminal-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 16px; }
+        .terminal-header { background: #1e293b; padding: 8px 14px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+        .terminal-logs { padding: 14px; height: 350px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; color: #a7f3d0; white-space: pre-wrap; word-break: break-all; }
+        .terminal-logs .log-error { color: #f87171; }
+        .terminal-logs .log-warn { color: #fbbf24; }
+        .terminal-logs .log-info { color: #60a5fa; }
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+        .status-idle { background: #334155; color: #cbd5e1; }
+        .status-running { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
         .footer { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 24px; }
     </style>
 </head>
@@ -61,7 +179,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="container">
         <div class="header">
             <h1>Telegram Medya Aktarici</h1>
-            <span style="font-size: 13px; background: #334155; padding: 4px 10px; border-radius: 20px;">Linux / Windows</span>
+            <span style="font-size: 12px; background: #334155; padding: 4px 10px; border-radius: 20px;">Linux / Windows</span>
         </div>
 
         <div class="grid">
@@ -83,24 +201,63 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- HIZLI ISLEMLER & CANLI KONSOL -->
         <div class="card">
-            <h2>Hizli Islemler</h2>
-            <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
-                Asagidaki butonlari kullanarak terminal komutlari yazmadan islemleri baslatabilirsiniz:
-            </p>
-            <div class="btn-group">
-                <button class="btn-success" onclick="runCommand('history')">Gecmisi Tara ve Aktar</button>
-                <button class="btn-primary" onclick="runCommand('live')">Canli Izlemeyi Baslat</button>
-                <button class="btn-warning" onclick="runCommand('list-topics')">Konulari (Topic) Listele</button>
-                <button class="btn-danger" onclick="runCommand('retry-failed')">Hatalilari Tekrar Dene</button>
+            <h2>
+                <span>Islem Kontrolu ve Canli Konsol</span>
+                <span id="app-status-badge" class="status-badge status-idle">DURUM: BEKLEMEDE (IDLE)</span>
+            </h2>
+            
+            <div class="btn-group" style="margin-bottom: 16px;">
+                <button class="btn-success" id="btn-history" onclick="runAction('history')">Gecmisi Tara ve Aktar</button>
+                <button class="btn-primary" id="btn-live" onclick="runAction('live')">Canli Izlemeyi Baslat</button>
+                <button class="btn-warning" id="btn-topics" onclick="runAction('list-topics')">Konulari (Topic) Listele</button>
+                <button class="btn-secondary" id="btn-retry" onclick="runAction('retry-failed')">Hatalilari Tekrar Dene</button>
+                <button class="btn-danger" id="btn-stop" onclick="stopAction()" disabled>Durdur (Stop)</button>
             </div>
-            <div id="cmd-status" style="margin-top: 12px; font-size: 14px; font-weight: 500;"></div>
+
+            <!-- Parametre Secenekleri -->
+            <div style="background: #0f172a; padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 16px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+                <div style="flex: 1; min-width: 150px;">
+                    <label style="font-size: 12px;">Ozel Topic ID (Opsiyonel):</label>
+                    <input type="text" id="action-topic" placeholder="Orn: 5914 (Bos ise .env gecerli)" style="padding: 6px 10px; font-size: 13px;">
+                </div>
+                <div style="flex: 1; min-width: 150px;">
+                    <label style="font-size: 12px;">Medya Turu:</label>
+                    <select id="action-type" style="padding: 6px 10px; font-size: 13px;">
+                        <option value="all">Tum Medyalar (Video + Foto)</option>
+                        <option value="video">Yalnizca Video</option>
+                        <option value="photo">Yalnizca Fotograf</option>
+                    </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px; margin-top: 18px;">
+                    <input type="checkbox" id="action-force" style="width: auto;">
+                    <label for="action-force" style="margin: 0; font-size: 12px; cursor: pointer;">Mukerrer Kontrolunu Atla (--force)</label>
+                </div>
+            </div>
+
+            <!-- CANLI TERMINAL KONSOLU -->
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <span>CANLI KONSOL CIKTISI (LIVE TERMINAL OUTPUT)</span>
+                    <button class="btn-secondary" onclick="clearLogs()" style="padding: 3px 10px; font-size: 11px;">Temizle</button>
+                </div>
+                <div id="terminal" class="terminal-logs">Konsol ciktisi bekleniyor...</div>
+            </div>
         </div>
 
+        <!-- AYARLAR (.ENV) -->
         <div class="card">
             <h2>Ayarlar (.env Yapilandirmasi)</h2>
-            <div id="alert-msg" class="alert alert-success">Ayarlar başarıyla kaydedildi!</div>
+            <div id="alert-msg" class="alert alert-success">Ayarlar basariyla kaydedildi!</div>
             <form id="settings-form">
+                <div class="form-group">
+                    <label>Dil / Language:</label>
+                    <select id="language" name="LANGUAGE">
+                        <option value="tr">Turkce (TR)</option>
+                        <option value="en">English (EN)</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label>Telegram API ID:</label>
                     <input type="text" id="api_id" name="TELEGRAM_API_ID" placeholder="12345678">
@@ -110,15 +267,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <input type="text" id="api_hash" name="TELEGRAM_API_HASH" placeholder="0123456789abcdef...">
                 </div>
                 <div class="form-group">
-                    <label>Telefon Numarası:</label>
+                    <label>Telefon Numarasi:</label>
                     <input type="text" id="phone" name="TELEGRAM_PHONE" placeholder="+905551234567">
                 </div>
                 <div class="form-group">
-                    <label>İndirilecek Medya Türü:</label>
+                    <label>Indirilecek Medya Turu:</label>
                     <select id="media_type" name="MEDIA_TYPE">
-                        <option value="all">Hem Video Hem Fotoğraflar (Tümü)</option>
-                        <option value="video">Yalnızca Videolar</option>
-                        <option value="photo">Yalnızca Fotoğraflar</option>
+                        <option value="all">Hem Video Hem Fotograflar (Tumu)</option>
+                        <option value="video">Yalnizca Videolar</option>
+                        <option value="photo">Yalnizca Fotograflar</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -127,7 +284,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
                 <div class="form-group">
                     <label>Kaynak Konu (Topic) ID Filtresi (Opsiyonel):</label>
-                    <input type="text" id="source_topic_ids" name="SOURCE_TOPIC_IDS" placeholder="Örn: 5914 (Tümü için boş bırakın)">
+                    <input type="text" id="source_topic_ids" name="SOURCE_TOPIC_IDS" placeholder="Orn: 5914 (Tumu icin bos birakin)">
                 </div>
                 <div class="form-group">
                     <label>Hedef Kanal ID veya @username:</label>
@@ -135,16 +292,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
                 <div class="form-group">
                     <label>Hedef Konu (Topic) ID (Opsiyonel):</label>
-                    <input type="text" id="target_topic_id" name="TARGET_TOPIC_ID" placeholder="0 (Ana kanal için 0)">
+                    <input type="text" id="target_topic_id" name="TARGET_TOPIC_ID" placeholder="0 (Ana kanal icin 0)">
                 </div>
                 <div class="form-group">
-                    <label>Yüklenen Dosyaları Diskten Otomatik Sil:</label>
+                    <label>Yuklenen Dosyalari Diskten Otomatik Sil:</label>
                     <select id="auto_cleanup" name="AUTO_CLEANUP">
-                        <option value="true">Evet (Yer Tasarrufu Sağlar)</option>
-                        <option value="false">Hayır (Downloads klasöründe sakla)</option>
+                        <option value="true">Evet (Yer Tasarrufu Saglar)</option>
+                        <option value="false">Hayir (Downloads klasorunde sakla)</option>
                     </select>
                 </div>
-                <button type="button" class="btn-primary" onclick="saveSettings()">💾 Ayarları Kaydet</button>
+                <button type="button" class="btn-primary" onclick="saveSettings()">Ayarlari Kaydet</button>
             </form>
         </div>
 
@@ -154,6 +311,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <script>
+        let logIndex = 0;
+        let isAutoScroll = true;
+
         async function loadStats() {
             try {
                 const res = await fetch('/api/stats');
@@ -196,14 +356,89 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function runCommand(mode) {
-            const statusEl = document.getElementById('cmd-status');
-            statusEl.innerHTML = `<span style="color: var(--primary);">⏳ Terminalde '${mode}' komutu başlatıldı. Canlı ilerlemeyi terminal ekranından takip edebilirsiniz.</span>`;
+        async function checkStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                const badge = document.getElementById('app-status-badge');
+                const btnStop = document.getElementById('btn-stop');
+                const actionBtns = ['btn-history', 'btn-live', 'btn-topics', 'btn-retry'];
+
+                if (data.running) {
+                    badge.className = 'status-badge status-running';
+                    badge.innerText = `DURUM: CALISIYOR (${data.mode})`;
+                    btnStop.disabled = false;
+                    actionBtns.forEach(id => document.getElementById(id).disabled = true);
+                } else {
+                    badge.className = 'status-badge status-idle';
+                    badge.innerText = 'DURUM: BEKLEMEDE (IDLE)';
+                    btnStop.disabled = true;
+                    actionBtns.forEach(id => document.getElementById(id).disabled = false);
+                }
+            } catch(e) {}
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/api/logs?since=' + logIndex);
+                const data = await res.json();
+                if (data.logs && data.logs.length > 0) {
+                    const term = document.getElementById('terminal');
+                    if (logIndex === 0) term.innerText = '';
+                    
+                    data.logs.forEach(line => {
+                        const div = document.createElement('div');
+                        if (line.includes('[ERROR]') || line.includes('[FAILED]')) {
+                            div.className = 'log-error';
+                        } else if (line.includes('[WARN]') || line.includes('[WARNING]') || line.includes('[FLOODWAIT]')) {
+                            div.className = 'log-warn';
+                        } else if (line.includes('[INFO]') || line.includes('[DETECTED]') || line.includes('[OK]')) {
+                            div.className = 'log-info';
+                        }
+                        div.innerText = line;
+                        term.appendChild(div);
+                    });
+
+                    logIndex = data.next_index;
+                    if (isAutoScroll) {
+                        term.scrollTop = term.scrollHeight;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        async function runAction(mode) {
+            const topic = document.getElementById('action-topic').value.trim();
+            const mediaType = document.getElementById('action-type').value;
+            const force = document.getElementById('action-force').checked;
+
+            clearLogs();
+            await fetch('/api/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: mode, topic: topic, media_type: mediaType, force: force })
+            });
+
+            checkStatus();
+        }
+
+        async function stopAction() {
+            await fetch('/api/stop', { method: 'POST' });
+            checkStatus();
+        }
+
+        function clearLogs() {
+            document.getElementById('terminal').innerText = '';
+            logIndex = 0;
         }
 
         loadStats();
         loadSettings();
+        checkStatus();
+
         setInterval(loadStats, 5000);
+        setInterval(checkStatus, 1500);
+        setInterval(fetchLogs, 500);
     </script>
 </body>
 </html>
@@ -218,6 +453,24 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(HTML_TEMPLATE.encode("utf-8"))
+
+        elif parsed.path == "/api/status":
+            running = task_manager.is_running()
+            mode = task_manager.current_mode or "idle"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"running": running, "mode": mode}).encode("utf-8"))
+
+        elif parsed.path == "/api/logs":
+            params = parse_qs(parsed.query)
+            since = int(params.get("since", [0])[0])
+            new_logs, total_len = task_manager.get_logs(since=since)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"logs": new_logs, "next_index": total_len}).encode("utf-8"))
+
         elif parsed.path == "/api/stats":
             db = DatabaseManager(config.db_path)
             stats = asyncio.run(db.get_stats())
@@ -225,6 +478,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(stats).encode("utf-8"))
+
         elif parsed.path == "/api/settings":
             env_dict = {}
             if Path(".env").exists():
@@ -238,22 +492,47 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(env_dict).encode("utf-8"))
+
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/api/settings":
+        if parsed.path == "/api/run":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len).decode("utf-8")
+            data = json.loads(body) if body else {}
+
+            mode = data.get("mode", "live")
+            topic = data.get("topic", "")
+            media_type = data.get("media_type", "all")
+            force = data.get("force", False)
+
+            success = task_manager.start_task(mode=mode, topic=topic, media_type=media_type, force=force)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success}).encode("utf-8"))
+
+        elif parsed.path == "/api/stop":
+            success = task_manager.stop_task()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success}).encode("utf-8"))
+
+        elif parsed.path == "/api/settings":
             content_len = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_len).decode("utf-8")
             new_settings = json.loads(body)
 
-            # .env dosyasını güncelle
             env_content = f"""# ==============================================================================
-# Telegram Medya İndirici & Aktarıcı Yapılandırma Dosyası
-# Web Paneli Tarafından Güncellendi
+# Telegram Media Syncer Configuration File
+# Updated by Web Dashboard
 # ==============================================================================
+
+LANGUAGE={new_settings.get('LANGUAGE', 'tr')}
 
 TELEGRAM_API_ID={new_settings.get('TELEGRAM_API_ID', '')}
 TELEGRAM_API_HASH={new_settings.get('TELEGRAM_API_HASH', '')}
@@ -291,12 +570,11 @@ CUSTOM_CAPTION_SUFFIX=
 def start_web_ui(port: int = 5000):
     server_address = ("", port)
     httpd = HTTPServer(server_address, WebUIHandler)
-    print(f"\n🌐 Web Kontrol Paneli Başlatıldı!")
-    print(f"👉 Tarayıcınızda açın: http://localhost:{port} veya http://127.0.0.1:{port}\n")
+    print(f"\n[INFO] Web Dashboard started on http://localhost:{port} (or http://127.0.0.1:{port})\n")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nWeb sunucusu kapatıldı.")
+        print("\n[INFO] Web server stopped.")
 
 
 if __name__ == "__main__":
