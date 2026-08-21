@@ -10,98 +10,130 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from config import config
+from dotenv import load_dotenv
+from config import config, _parse_topic_list, _parse_channel_list
 from database import DatabaseManager
 from channel_helper import ChannelHelper
 from telethon import TelegramClient
 
 
 class TaskManager:
-    """Arka plan islemlerini yoneten ve ciktilari canli toplayan sinif."""
+    """Arka plan islemlerini guvenli sekilde yoneten ve loglari anlik toplayan sinif."""
 
     def __init__(self):
-        self.process = None
+        self.active_app = None
         self.current_mode = None
+        self.worker_thread = None
         self.logs = []
         self.lock = threading.Lock()
-        self._reader_thread = None
 
     def is_running(self) -> bool:
         with self.lock:
-            if self.process is None:
-                return False
-            return self.process.poll() is None
+            return self.worker_thread is not None and self.worker_thread.is_alive()
 
     def start_task(self, mode: str, topic: str = "", media_type: str = "", force: bool = False) -> bool:
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
+            if self.worker_thread is not None and self.worker_thread.is_alive():
                 return False
 
             self.current_mode = mode
             self.logs.clear()
             self._add_log(f"[INFO] '{mode}' islemi baslatildi.")
 
-            cmd = [sys.executable, "-u", "main.py", mode]
-            if topic:
-                cmd.extend(["--topic", str(topic).strip()])
-            if media_type and media_type != "all":
-                cmd.extend(["--type", media_type])
-            if force:
-                cmd.append("--force")
-
-            env = os.environ.copy()
-            env["PYTHONUNBUFFERED"] = "1"
-
-            try:
-                self.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True,
-                    env=env,
-                )
-            except Exception as e:
-                self._add_log(f"[ERROR] Islem baslatilamadi: {e}")
-                self.current_mode = None
-                return False
-
-            self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
-            self._reader_thread.start()
+            self.worker_thread = threading.Thread(
+                target=self._run_async_worker,
+                args=(mode, topic, media_type, force),
+                daemon=True
+            )
+            self.worker_thread.start()
             return True
 
-    def _read_output(self):
+    def _run_async_worker(self, mode: str, topic: str, media_type: str, force: bool):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        class WebLogger:
+            def __init__(self, add_log_fn, orig_stdout):
+                self.add_log_fn = add_log_fn
+                self.orig_stdout = orig_stdout
+
+            def write(self, msg):
+                if msg:
+                    for line in msg.splitlines():
+                        clean = line.strip()
+                        if clean:
+                            self.add_log_fn(clean)
+                if self.orig_stdout:
+                    try:
+                        self.orig_stdout.write(msg)
+                    except Exception:
+                        pass
+
+            def flush(self):
+                if self.orig_stdout:
+                    try:
+                        self.orig_stdout.flush()
+                    except Exception:
+                        pass
+
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = WebLogger(self._add_log, old_stdout)
+        sys.stderr = WebLogger(self._add_log, old_stderr)
+
         try:
-            for line in iter(self.process.stdout.readline, ""):
-                if line:
-                    clean_line = line.rstrip("\r\n")
-                    self._add_log(clean_line)
-            self.process.stdout.close()
-            self.process.wait()
-            rc = self.process.returncode
-            if rc == 0:
-                self._add_log(f"[DONE] '{self.current_mode}' islemi basariyla tamamlandi.")
-            else:
-                self._add_log(f"[INFO] '{self.current_mode}' islemi sonlandi (Kod: {rc}).")
+            loop.run_until_complete(self._execute_app(mode, topic, media_type, force))
         except Exception as ex:
-            self._add_log(f"[ERROR] Konsol okuma hatasi: {ex}")
+            self._add_log(f"[ERROR] Islem hatasi: {ex}")
         finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            try:
+                loop.close()
+            except Exception:
+                pass
             with self.lock:
                 self.current_mode = None
+                self.active_app = None
+
+    async def _execute_app(self, mode: str, topic: str, media_type: str, force: bool):
+        load_dotenv(override=True)
+        from main import TelegramSyncerApp
+
+        config.validate()
+
+        cli_topics = _parse_topic_list(topic) if topic else None
+        cli_media = media_type if (media_type and media_type != "all") else None
+
+        app = TelegramSyncerApp(override_topics=cli_topics, override_media_type=cli_media)
+        with self.lock:
+            self.active_app = app
+
+        await app.initialize()
+
+        if mode == "live":
+            await app.run_live_monitor()
+        elif mode == "history":
+            await app.run_history_sync(limit=0, force=force)
+        elif mode == "retry-failed":
+            await app.run_retry_failed()
+        elif mode == "list-topics":
+            await app.list_source_topics()
+
+        try:
+            await app.client.disconnect()
+        except Exception:
+            pass
+
+        self._add_log(f"[DONE] '{mode}' islemi tamamlandi.")
 
     def stop_task(self) -> bool:
         with self.lock:
-            if self.process is None or self.process.poll() is not None:
-                return False
-            try:
-                self.process.terminate()
-                self._add_log("[WARNING] Islem kullanici tarafindan durduruldu.")
+            if self.active_app:
+                self.active_app.stop()
+                self._add_log("[WARNING] Islem durduruluyor...")
                 return True
-            except Exception as e:
-                self._add_log(f"[ERROR] Durdurma hatasi: {e}")
-                return False
+            return False
 
     def _add_log(self, text: str):
         with self.lock:
@@ -122,6 +154,7 @@ task_manager = TaskManager()
 
 async def fetch_topics_async():
     """Telegram istemcisini baslatip kaynak kanallardaki konulari ceker."""
+    load_dotenv(override=True)
     client = TelegramClient(
         config.session_name,
         config.api_id,
@@ -162,7 +195,10 @@ async def fetch_topics_async():
     except Exception as ex:
         return {"success": False, "error": str(ex)}
     finally:
-        await client.disconnect()
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -439,7 +475,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 } else {
                     badge.className = 'status-badge status-idle';
                     badge.innerText = 'DURUM: BEKLEMEDE (IDLE)';
-                    btnStop.disabled = false;
+                    btnStop.disabled = true;
                     actionBtns.forEach(id => document.getElementById(id).disabled = false);
                 }
             } catch(e) {}
@@ -459,7 +495,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             div.className = 'log-error';
                         } else if (line.includes('[WARN]') || line.includes('[WARNING]') || line.includes('[FLOODWAIT]')) {
                             div.className = 'log-warn';
-                        } else if (line.includes('[INFO]') || line.includes('[DETECTED]') || line.includes('[OK]') || line.includes('[AUTH]')) {
+                        } else if (line.includes('[INFO]') || line.includes('[DETECTED]') || line.includes('[OK]') || line.includes('[AUTH]') || line.includes('[DONE]')) {
                             div.className = 'log-info';
                         }
                         div.innerText = line;
@@ -487,6 +523,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             });
 
             checkStatus();
+            fetchLogs();
         }
 
         async function stopAction() {
