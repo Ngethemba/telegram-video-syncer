@@ -1,6 +1,6 @@
 # Telegram Media Syncer (Linux & Windows)
 
-Telegram channel and group media downloader and uploader (sync tool) with restricted content support, topic/forum support, duplicate tracking via SQLite, automatic retries, and cross-platform compatibility (Linux & Windows).
+Telegram channel and group media downloader and uploader (sync tool) with restricted content support, topic/forum support, duplicate tracking via SQLite, automatic retries, configuration profile export/import, and cross-platform compatibility (Linux & Windows).
 
 ---
 
@@ -18,6 +18,7 @@ Bu uygulama; Telegram kanallarindan veya gruplarindan (icerik indirme/kopyalama 
 
 ## Temel Ozellikler
 - **Video ve Fotograf Destegi:** Hem videolari hem fotograflari (MEDIA_TYPE=all), yalnizca videolari (MEDIA_TYPE=video) veya yalnizca fotograflari (MEDIA_TYPE=photo) senkronize edebilir.
+- **Profil Paylasimi (Disa / Ice Aktar):** Ayarlarinizi (API ID, telefon, kanallar vb.) baska bilgisayarlara (Laptop, Masaustu) tek tikla aktarmak icin JSON profil dosyasi olarak disa aktarabilir veya yukleyebilirsiniz.
 - **Kisitli / Yasakli Kanal Destegi:** MTProto istemcisi (Telethon) kullandigindan, korumali (noforwards / protected_content) kanallardaki medyalari stream ederek indirebilir.
 - **Forum ve Topic (Konu) Destegi:** Kaynak kanaldaki belirli bir konuyu (Topic ID) filtreleyebilir veya hedef kanaldaki belirli bir konuya yukleme yapabilir.
 - **Mukerrer Kontrolu (SQLite):** Islenen her medyanin benzersiz kimligi (file_unique_id) veritabaninda saklanir. Dosyalar diskten silinse bile ayni medya tekrar indirilmez.
@@ -55,6 +56,13 @@ chmod +x install.sh run.sh
 
 ---
 
+## Profil ve Ayarlari Paylasma (Cihazlar Arasi Gecis)
+Laptop ve masaustu bilgisayariniz arasinda ayarlari tek tek girmek yerine:
+1. **Web Panelinde:** "Profili Disa Aktar (JSON Indir)" butonuna basin ve inen `telegram_syncer_profile.json` dosyasini diger bilgisayariniza atin. Diger bilgisayarda Web Panelinden "Profil Dosyasi Yukle" butonuna tiklayip dosyayi secin.
+2. **Terminal Menusunde:** `./run.sh` menuden `[9] Profili Disa Aktar` ile JSON kaydedin, diger cihazda `[10] Profil Dosyasi Yukle` ile yukleyin.
+
+---
+
 ## Yapilandirma (.env Dosyasi)
 `my.telegram.org` adresinden API ID ve API Hash bilgilerinizi aldiktan sonra `.env` dosyasini duzenleyin:
 
@@ -84,9 +92,9 @@ chmod +x install.sh run.sh
 
 ### 2. Web Kontrol Panelini Baslatma
 Tarayiciniz uzerinden grafiksel kontrol paneli acmak icin:
-```bash
-python3 web_ui.py
-```
+- **Linux:** `./run.sh web` (veya `python3 web_ui.py`)
+- **Windows:** `run.bat web` (veya `python web_ui.py`)
+
 Tarayicida `http://localhost:5000` adresini acin.
 
 ### 3. Komut Satiri Modlari
@@ -122,10 +130,11 @@ Tarayicida `http://localhost:5000` adresini acin.
 # English Documentation
 
 ## Overview
-Telegram Media Syncer is a cross-platform tool for Linux and Windows that downloads videos and photos from Telegram channels/groups (including restricted/protected channels where forwarding or saving is disabled), uploads them to a target channel (with forum topic support), prevents duplicates using an SQLite database, and handles network cuts with exponential backoff retries.
+Telegram Media Syncer is a cross-platform tool for Linux and Windows that downloads videos and photos from Telegram channels/groups (including restricted/protected channels where forwarding or saving is disabled), uploads them to a target channel (with forum topic support), prevents duplicates using an SQLite database, supports profile export/import between devices, and handles network cuts with exponential backoff retries.
 
 ## Key Features
 - **Video & Photo Syncing:** Sync both videos and photos (`MEDIA_TYPE=all`), videos only (`MEDIA_TYPE=video`), or photos only (`MEDIA_TYPE=photo`).
+- **Profile Export & Import:** Share or migrate settings between devices (e.g. Laptop and Desktop) with a single JSON profile file.
 - **Restricted Channel Support:** Uses the official MTProto User API (Telethon) to stream and save media even if content protection (`noforwards` / `protected_content`) is enabled.
 - **Forum & Topic Support:** Filter specific source topics by ID, or route uploads to a designated target forum topic.
 - **Duplicate Prevention:** Tracks `file_unique_id` and message IDs in SQLite (`syncer_database.db`). Files will not be re-downloaded even if local files are deleted.
@@ -163,6 +172,13 @@ chmod +x install.sh run.sh
 
 ---
 
+## Configuration Profile Sharing (Cross-Device)
+To quickly share or copy settings between laptop and desktop computers:
+1. **In Web Dashboard:** Click "Profili Disa Aktar (Export JSON)" to download `telegram_syncer_profile.json`. On the other computer, open Web Dashboard, click "Profil Dosyasi Yukle (Import Profile)", and select the file.
+2. **In Terminal Menu:** Run `./run.sh` -> Choose `[9] Export Profile` to save a JSON file, and on the new machine choose `[10] Import Profile` to load it.
+
+---
+
 ## Configuration (.env File)
 Obtain your API ID and API Hash from `my.telegram.org` and configure `.env`:
 
@@ -192,9 +208,9 @@ Obtain your API ID and API Hash from `my.telegram.org` and configure `.env`:
 
 ### 2. Web Control Panel
 Start the lightweight web UI:
-```bash
-python3 web_ui.py
-```
+- **Linux:** `./run.sh web`
+- **Windows:** `run.bat web`
+
 Open `http://localhost:5000` in your web browser.
 
 ### 3. Command-Line Usage

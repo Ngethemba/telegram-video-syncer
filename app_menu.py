@@ -5,6 +5,7 @@ from pathlib import Path
 from colorama import Fore, Style, init
 
 from setup_wizard import run_setup_wizard, select_language_prompt, ENV_PATH
+from profile_manager import ProfileManager
 from i18n import t, get_active_language
 
 init(autoreset=True)
@@ -43,6 +44,57 @@ def update_env_language(new_lang: str):
     os.environ["LANGUAGE"] = new_lang
 
 
+def export_profile_interactive(lang: str):
+    clear_screen()
+    print(Fore.CYAN + "==================================================================")
+    print(Fore.CYAN + t('menu_export_profile', lang))
+    print(Fore.CYAN + "==================================================================")
+    default_name = "telegram_syncer_profile.json"
+    prompt_msg = f"Kaydedilecek dosya adi [{default_name}]: " if lang == "tr" else f"Target filename [{default_name}]: "
+    fname = input(prompt_msg).strip() or default_name
+    if not fname.endswith(".json"):
+        fname += ".json"
+    
+    target_path = Path(fname)
+    ProfileManager.export_to_file(target_path, profile_name=target_path.stem)
+    print(Fore.GREEN + f"\n{t('profile_exported', lang, path=target_path.resolve())}\n")
+    print(Fore.YELLOW + ("Bu dosyayi baska bir bilgisayara kopyalayip ice aktarabilirsiniz!" if lang == "tr" else "You can copy this file to another machine and import it!"))
+
+
+def import_profile_interactive(lang: str):
+    clear_screen()
+    print(Fore.CYAN + "==================================================================")
+    print(Fore.CYAN + t('menu_import_profile', lang))
+    print(Fore.CYAN + "==================================================================")
+    
+    saved = ProfileManager.list_saved_profiles()
+    if saved:
+        print(Fore.YELLOW + ("Kayitli Profiller:" if lang == "tr" else "Saved Profiles:"))
+        for idx, p in enumerate(saved, 1):
+            print(f"  [{idx}] {p}")
+        print()
+
+    prompt_msg = "Ice aktarilacak profil dosyasi yolu (orn: telegram_syncer_profile.json): " if lang == "tr" else "Profile file path to import (e.g. telegram_syncer_profile.json): "
+    fpath_str = input(prompt_msg).strip()
+    if not fpath_str:
+        if saved:
+            fpath_str = f"profiles/{saved[0]}.json"
+        else:
+            fpath_str = "telegram_syncer_profile.json"
+
+    fpath = Path(fpath_str)
+    if not fpath.exists():
+        # profiles/ icinde ara
+        candidate = Path("profiles") / f"{fpath_str}.json"
+        if candidate.exists():
+            fpath = candidate
+
+    if ProfileManager.import_from_file(fpath):
+        print(Fore.GREEN + f"\n{t('profile_imported', lang)}\n")
+    else:
+        print(Fore.RED + f"\n{t('profile_import_failed', lang)}\n")
+
+
 def main_menu():
     while True:
         lang = get_active_language()
@@ -59,6 +111,8 @@ def main_menu():
         print(f"  {Fore.GREEN}{t('menu_status', lang)}")
         print(f"  {Fore.GREEN}{t('menu_wizard', lang)}")
         print(f"  {Fore.GREEN}{t('menu_web', lang)}")
+        print(f"  {Fore.CYAN}{t('menu_export_profile', lang)}")
+        print(f"  {Fore.CYAN}{t('menu_import_profile', lang)}")
         print(f"  {Fore.YELLOW}{t('menu_lang', lang)}")
         print(f"  {Fore.RED}{t('menu_exit', lang)}")
         print(Fore.CYAN + "==================================================================")
@@ -125,6 +179,14 @@ def main_menu():
             subprocess.run([sys.executable, "web_ui.py"])
 
         elif choice == "9":
+            export_profile_interactive(lang)
+            input(Fore.YELLOW + "\n" + t('press_enter', lang))
+
+        elif choice == "10":
+            import_profile_interactive(lang)
+            input(Fore.YELLOW + "\n" + t('press_enter', lang))
+
+        elif choice == "11":
             clear_screen()
             new_lang = select_language_prompt()
             update_env_language(new_lang)

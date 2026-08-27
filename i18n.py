@@ -15,7 +15,9 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "menu_status": "[6] Durum ve Istatistik Raporu",
         "menu_wizard": "[7] Ayarlari Duzenle (Kurulum Sihirbazi)",
         "menu_web": "[8] Web Kontrol Panelini Baslat (Tarayicidan Yonetim)",
-        "menu_lang": "[9] Dil Secimi / Language Selection (TR / EN)",
+        "menu_export_profile": "[9] Profili / Ayarlari Disa Aktar (JSON Dosyasi)",
+        "menu_import_profile": "[10] Profil Dosyasi Yukle / Ice Aktar (JSON)",
+        "menu_lang": "[11] Dil Secimi / Language Selection (TR / EN)",
         "menu_exit": "[0] Cikis",
         "choice_prompt": "Seciminiz: ",
         "live_started": "[BILGI] Canli izleme modu baslatildi. Yeni medyalar bekleniyor... (Cikmak icin Ctrl+C)",
@@ -38,6 +40,9 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "stats_failed": "Basarisiz / Hatali     : {failed}",
         "stats_pending": "Bekleyen / Indirilen   : {pending}",
         "stats_transferred": "Toplam Aktarilan Veri  : {mb:.2f} MB",
+        "profile_exported": "[BASARILI] Profil dosyasi kaydedildi: {path}",
+        "profile_imported": "[BASARILI] Profil basariyla ice aktarildi ve .env guncellendi!",
+        "profile_import_failed": "[HATA] Profil dosyasi okunamadi veya gecersiz.",
         "press_enter": "Devam etmek icin ENTER tusuna basin...",
         "goodbye": "Gule gule!",
         "video": "Video",
@@ -59,7 +64,9 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "menu_status": "[6] Status and Statistics Report",
         "menu_wizard": "[7] Edit Settings (Setup Wizard)",
         "menu_web": "[8] Start Web Control Dashboard (Browser Management)",
-        "menu_lang": "[9] Dil Secimi / Language Selection (TR / EN)",
+        "menu_export_profile": "[9] Export Profile / Settings (JSON File)",
+        "menu_import_profile": "[10] Import Profile / Settings (JSON File)",
+        "menu_lang": "[11] Dil Secimi / Language Selection (TR / EN)",
         "menu_exit": "[0] Exit",
         "choice_prompt": "Your choice: ",
         "live_started": "[INFO] Live monitoring started. Waiting for new media... (Press Ctrl+C to exit)",
@@ -82,6 +89,9 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "stats_failed": "Failed / Errors        : {failed}",
         "stats_pending": "Pending / Downloaded   : {pending}",
         "stats_transferred": "Total Data Transferred : {mb:.2f} MB",
+        "profile_exported": "[SUCCESS] Profile file saved: {path}",
+        "profile_imported": "[SUCCESS] Profile imported successfully and .env updated!",
+        "profile_import_failed": "[ERROR] Failed to read profile file or invalid format.",
         "press_enter": "Press ENTER to continue...",
         "goodbye": "Goodbye!",
         "video": "Video",
@@ -94,12 +104,12 @@ MESSAGES: Dict[str, Dict[str, str]] = {
 
 
 def get_active_language() -> str:
-    """Aktif dili döner (Varsayılan: .env içindeki LANGUAGE veya 'tr')."""
+    """Aktif dili doner (Varsayilan: .env icindeki LANGUAGE veya 'tr')."""
     return os.getenv("LANGUAGE", "tr").lower().strip()
 
 
 def t(key: str, lang: str = None, **kwargs) -> str:
-    """Belirtilen anahtar ve dilde metni formatlayarak döner."""
+    """Belirtilen anahtar ve dilde metni formatlayarak doner."""
     if not lang:
         lang = get_active_language()
     if lang not in MESSAGES:

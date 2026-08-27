@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import shutil
 import tempfile
@@ -9,6 +10,7 @@ from database import DatabaseManager
 from config import AppConfig, _parse_channel_list, _parse_single_channel, _normalize_topic_id, _parse_topic_list
 from media_helper import MediaHelper
 from channel_helper import ChannelHelper
+from profile_manager import ProfileManager
 
 
 class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
@@ -117,6 +119,28 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(":", clean)
         self.assertNotIn("/", clean)
         self.assertNotIn("*", clean)
+
+    def test_profile_export_and_import(self):
+        test_settings = {
+            "LANGUAGE": "en",
+            "TELEGRAM_API_ID": "98765432",
+            "TELEGRAM_API_HASH": "abcdef0123456789abcdef0123456789",
+            "TELEGRAM_PHONE": "+1234567890",
+            "MEDIA_TYPE": "photo",
+            "SOURCE_CHANNELS": "-1001111111111",
+            "TARGET_CHANNEL": "-1002222222222",
+            "AUTO_CLEANUP": "false",
+        }
+        test_file = Path(self.test_dir) / "test_profile.json"
+        with open(test_file, "w", encoding="utf-8") as f:
+            json.dump({"profile_name": "test", "settings": test_settings}, f)
+
+        # Import
+        self.assertTrue(ProfileManager.import_from_file(test_file))
+        current = ProfileManager.get_current_settings()
+        self.assertEqual(current.get("TELEGRAM_API_ID"), "98765432")
+        self.assertEqual(current.get("MEDIA_TYPE"), "photo")
+        self.assertEqual(current.get("TELEGRAM_PHONE"), "+1234567890")
 
 
 if __name__ == "__main__":

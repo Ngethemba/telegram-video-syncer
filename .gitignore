@@ -1,7 +1,10 @@
-# Ortam Değişkenleri ve Gizli Bilgiler
+# Ortam Degiskenleri ve Gizli Bilgiler
 .env
 *.session
 *.session-journal
+profiles/
+*.profile.json
+telegram_syncer_profile.json
 
 # Python
 __pycache__/
@@ -15,7 +18,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Veritabanı ve Medyalar
+# Veritabani ve Medyalar
 *.db
 *.db-journal
 downloads/

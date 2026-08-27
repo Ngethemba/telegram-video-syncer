@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from config import config, _parse_topic_list, _parse_channel_list
 from database import DatabaseManager
 from channel_helper import ChannelHelper
+from profile_manager import ProfileManager
 from telethon import TelegramClient
 
 
@@ -349,6 +350,41 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- PROFIL YONETIMI (DISA / ICE AKTAR) -->
+        <div class="card">
+            <h2>
+                <span>Profil ve Ayar Paylasimi (Disa / Ice Aktar)</span>
+            </h2>
+            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 14px;">
+                Ayarlarinizi bilgisayarlar arasinda (Laptop, Masaustu vb.) kolayca paylasmak icin profil dosyasi (.json) olarak disa aktarabilir veya baska cihazdan gelen profil dosyasini yukleyebilirsiniz.
+            </p>
+            <div id="profile-alert" class="alert alert-success"></div>
+            
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center; background: #0f172a; padding: 14px; border-radius: 6px; border: 1px solid var(--border);">
+                <!-- Dışa Aktar -->
+                <div>
+                    <a href="/api/profile/export" download="telegram_syncer_profile.json" style="text-decoration: none;">
+                        <button type="button" class="btn-primary">Profili Disa Aktar (JSON Indir)</button>
+                    </a>
+                </div>
+
+                <!-- İçe Aktar -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <input type="file" id="profile-file-input" accept=".json" style="display: none;" onchange="importProfileFile(event)">
+                    <button type="button" class="btn-success" onclick="document.getElementById('profile-file-input').click()">Profil Dosyasi Yukle (Ice Aktar)</button>
+                </div>
+
+                <!-- Kayıtlı Profiller -->
+                <div style="display: flex; align-items: center; gap: 6px; margin-left: auto;">
+                    <select id="saved-profiles-select" style="padding: 7px 10px; font-size: 13px; width: auto; min-width: 140px;">
+                        <option value="">Kayitli Profiller...</option>
+                    </select>
+                    <button type="button" class="btn-secondary" style="padding: 7px 12px;" onclick="loadSelectedNamedProfile()">Yukle</button>
+                    <button type="button" class="btn-secondary" style="padding: 7px 12px;" onclick="saveCurrentAsNamedProfile()">Farkli Kaydet</button>
+                </div>
+            </div>
+        </div>
+
         <!-- AYARLAR (.ENV) -->
         <div class="card">
             <h2>Ayarlar (.env Yapilandirmasi)</h2>
@@ -440,6 +476,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             } catch(e) {}
         }
 
+        async function loadSavedProfiles() {
+            try {
+                const res = await fetch('/api/profile/list');
+                const data = await res.json();
+                const sel = document.getElementById('saved-profiles-select');
+                sel.innerHTML = '<option value="">Kayitli Profiller...</option>';
+                if (data.profiles) {
+                    data.profiles.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p;
+                        opt.innerText = p;
+                        sel.appendChild(opt);
+                    });
+                }
+            } catch(e) {}
+        }
+
         async function saveSettings() {
             const form = document.getElementById('settings-form');
             const formData = new FormData(form);
@@ -459,6 +512,76 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        async function importProfileFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const jsonContent = JSON.parse(e.target.result);
+                    const res = await fetch('/api/profile/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(jsonContent)
+                    });
+                    const result = await res.json();
+                    if (result.success) {
+                        showProfileAlert('Profil basariyla ice aktarildi ve ayarlar guncellendi!');
+                        loadSettings();
+                    } else {
+                        showProfileAlert('Hata: Profil dosyasi uygulanamadi.', true);
+                    }
+                } catch(err) {
+                    showProfileAlert('Gecersiz JSON dosyasi: ' + err, true);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        async function saveCurrentAsNamedProfile() {
+            const name = prompt('Kaydedilecek profil ismi girin (orn: Laptop-Dersler):');
+            if (!name) return;
+            const res = await fetch('/api/profile/save_named', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showProfileAlert(`'${name}' profili basariyla kaydedildi!`);
+                loadSavedProfiles();
+            }
+        }
+
+        async function loadSelectedNamedProfile() {
+            const sel = document.getElementById('saved-profiles-select');
+            const name = sel.value;
+            if (!name) {
+                alert('Lutfen listeden bir profil secin.');
+                return;
+            }
+            const res = await fetch('/api/profile/load_named', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showProfileAlert(`'${name}' profili yuklendi ve ayarlar guncellendi!`);
+                loadSettings();
+            }
+        }
+
+        function showProfileAlert(msg, isError = false) {
+            const el = document.getElementById('profile-alert');
+            el.innerText = msg;
+            el.className = isError ? 'alert alert-danger' : 'alert alert-success';
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 4000);
+        }
+
         async function checkStatus() {
             try {
                 const res = await fetch('/api/status');
@@ -475,7 +598,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 } else {
                     badge.className = 'status-badge status-idle';
                     badge.innerText = 'DURUM: BEKLEMEDE (IDLE)';
-                    btnStop.disabled = true;
+                    btnStop.disabled = false;
                     actionBtns.forEach(id => document.getElementById(id).disabled = false);
                 }
             } catch(e) {}
@@ -600,6 +723,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         loadStats();
         loadSettings();
+        loadSavedProfiles();
         checkStatus();
 
         setInterval(loadStats, 5000);
@@ -644,6 +768,22 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(result).encode("utf-8"))
 
+        elif parsed.path == "/api/profile/export":
+            profile_data = ProfileManager.export_to_dict()
+            json_str = json.dumps(profile_data, indent=4, ensure_ascii=False)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Disposition", "attachment; filename=telegram_syncer_profile.json")
+            self.end_headers()
+            self.wfile.write(json_str.encode("utf-8"))
+
+        elif parsed.path == "/api/profile/list":
+            profiles = ProfileManager.list_saved_profiles()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"profiles": profiles}).encode("utf-8"))
+
         elif parsed.path == "/api/stats":
             db = DatabaseManager(config.db_path)
             stats = asyncio.run(db.get_stats())
@@ -653,14 +793,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(stats).encode("utf-8"))
 
         elif parsed.path == "/api/settings":
-            env_dict = {}
-            if Path(".env").exists():
-                with open(".env", "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            k, v = line.split("=", 1)
-                            env_dict[k.strip()] = v.strip()
+            env_dict = ProfileManager.get_current_settings()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -699,45 +832,47 @@ class WebUIHandler(BaseHTTPRequestHandler):
             content_len = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_len).decode("utf-8")
             new_settings = json.loads(body)
-
-            env_content = f"""# ==============================================================================
-# Telegram Media Syncer Configuration File
-# Updated by Web Dashboard
-# ==============================================================================
-
-LANGUAGE={new_settings.get('LANGUAGE', 'tr')}
-
-TELEGRAM_API_ID={new_settings.get('TELEGRAM_API_ID', '')}
-TELEGRAM_API_HASH={new_settings.get('TELEGRAM_API_HASH', '')}
-TELEGRAM_PHONE={new_settings.get('TELEGRAM_PHONE', '')}
-SESSION_NAME=telegram_syncer_session
-
-MEDIA_TYPE={new_settings.get('MEDIA_TYPE', 'all')}
-
-SOURCE_CHANNELS={new_settings.get('SOURCE_CHANNELS', '')}
-SOURCE_TOPIC_IDS={new_settings.get('SOURCE_TOPIC_IDS', '')}
-
-TARGET_CHANNEL={new_settings.get('TARGET_CHANNEL', '')}
-TARGET_TOPIC_ID={new_settings.get('TARGET_TOPIC_ID', '0')}
-
-DOWNLOAD_DIR=downloads
-AUTO_CLEANUP={new_settings.get('AUTO_CLEANUP', 'true')}
-MAX_FILE_SIZE_MB=0
-MIN_DURATION_SECONDS=0
-MAX_RETRIES=5
-RETRY_DELAY_SECONDS=5
-DELAY_BETWEEN_UPLOADS=3
-KEEP_ORIGINAL_CAPTION=true
-CUSTOM_CAPTION_PREFIX=
-CUSTOM_CAPTION_SUFFIX=
-"""
-            with open(".env", "w", encoding="utf-8") as f:
-                f.write(env_content)
+            ProfileManager.apply_settings(new_settings)
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": True}).encode("utf-8"))
+
+        elif parsed.path == "/api/profile/import":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len).decode("utf-8")
+            profile_data = json.loads(body)
+            success = ProfileManager.import_from_dict(profile_data)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success}).encode("utf-8"))
+
+        elif parsed.path == "/api/profile/save_named":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len).decode("utf-8")
+            data = json.loads(body)
+            name = data.get("name", "profile")
+            saved_path = ProfileManager.save_named_profile(name)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "path": str(saved_path)}).encode("utf-8"))
+
+        elif parsed.path == "/api/profile/load_named":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len).decode("utf-8")
+            data = json.loads(body)
+            name = data.get("name", "")
+            success = ProfileManager.load_named_profile(name)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": success}).encode("utf-8"))
 
 
 def start_web_ui(port: int = 5000):
