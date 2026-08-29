@@ -95,7 +95,7 @@ class AppConfig:
     language: str = field(default_factory=lambda: os.getenv("LANGUAGE", "tr").lower().strip())
 
     # Telegram API
-    api_id: int = field(default_factory=lambda: int(os.getenv("TELEGRAM_API_ID", "0")))
+    api_id: int = field(default_factory=lambda: int(os.getenv("TELEGRAM_API_ID", "0") or 0))
     api_hash: str = field(default_factory=lambda: os.getenv("TELEGRAM_API_HASH", ""))
     phone: str = field(default_factory=lambda: os.getenv("TELEGRAM_PHONE", ""))
     session_name: str = field(default_factory=lambda: os.getenv("SESSION_NAME", "telegram_syncer_session"))
@@ -129,19 +129,19 @@ class AppConfig:
         default_factory=lambda: _str_to_bool(os.getenv("AUTO_CLEANUP", "true"))
     )
     max_file_size_mb: float = field(
-        default_factory=lambda: float(os.getenv("MAX_FILE_SIZE_MB", "0"))
+        default_factory=lambda: float(os.getenv("MAX_FILE_SIZE_MB", "0") or 0)
     )
     min_duration_seconds: int = field(
-        default_factory=lambda: int(os.getenv("MIN_DURATION_SECONDS", "0"))
+        default_factory=lambda: int(os.getenv("MIN_DURATION_SECONDS", "0") or 0)
     )
     max_retries: int = field(
-        default_factory=lambda: int(os.getenv("MAX_RETRIES", "5"))
+        default_factory=lambda: int(os.getenv("MAX_RETRIES", "5") or 5)
     )
     retry_delay_seconds: int = field(
-        default_factory=lambda: int(os.getenv("RETRY_DELAY_SECONDS", "5"))
+        default_factory=lambda: int(os.getenv("RETRY_DELAY_SECONDS", "5") or 5)
     )
     delay_between_uploads: int = field(
-        default_factory=lambda: int(os.getenv("DELAY_BETWEEN_UPLOADS", "3"))
+        default_factory=lambda: int(os.getenv("DELAY_BETWEEN_UPLOADS", "3") or 3)
     )
 
     # Captions
@@ -158,8 +158,52 @@ class AppConfig:
     # Database
     db_path: Path = field(default_factory=lambda: Path("syncer_database.db"))
 
+    def reload(self) -> None:
+        """Reloads all configuration fields dynamically from .env and environment."""
+        load_dotenv(override=True)
+        self.language = os.getenv("LANGUAGE", "tr").lower().strip()
+        try:
+            self.api_id = int(os.getenv("TELEGRAM_API_ID", "0") or 0)
+        except Exception:
+            self.api_id = 0
+        self.api_hash = os.getenv("TELEGRAM_API_HASH", "").strip()
+        self.phone = os.getenv("TELEGRAM_PHONE", "").strip()
+        self.session_name = os.getenv("SESSION_NAME", "telegram_syncer_session").strip()
+        self.media_type = os.getenv("MEDIA_TYPE", "all").lower().strip()
+        self.source_channels = _parse_channel_list(os.getenv("SOURCE_CHANNELS", ""))
+        self.source_topic_ids = _parse_topic_list(os.getenv("SOURCE_TOPIC_IDS", ""))
+        self.target_channel = _parse_single_channel(os.getenv("TARGET_CHANNEL", ""))
+        self.target_topic_id = _normalize_topic_id(os.getenv("TARGET_TOPIC_ID", "0"))
+        self.download_dir = Path(os.getenv("DOWNLOAD_DIR", "downloads"))
+        self.auto_cleanup = _str_to_bool(os.getenv("AUTO_CLEANUP", "true"))
+        try:
+            self.max_file_size_mb = float(os.getenv("MAX_FILE_SIZE_MB", "0") or 0)
+        except Exception:
+            self.max_file_size_mb = 0.0
+        try:
+            self.min_duration_seconds = int(os.getenv("MIN_DURATION_SECONDS", "0") or 0)
+        except Exception:
+            self.min_duration_seconds = 0
+        try:
+            self.max_retries = int(os.getenv("MAX_RETRIES", "5") or 5)
+        except Exception:
+            self.max_retries = 5
+        try:
+            self.retry_delay_seconds = int(os.getenv("RETRY_DELAY_SECONDS", "5") or 5)
+        except Exception:
+            self.retry_delay_seconds = 5
+        try:
+            self.delay_between_uploads = int(os.getenv("DELAY_BETWEEN_UPLOADS", "3") or 3)
+        except Exception:
+            self.delay_between_uploads = 3
+        self.keep_original_caption = _str_to_bool(os.getenv("KEEP_ORIGINAL_CAPTION", "true"))
+        self.custom_caption_prefix = os.getenv("CUSTOM_CAPTION_PREFIX", "")
+        self.custom_caption_suffix = os.getenv("CUSTOM_CAPTION_SUFFIX", "")
+        self.db_path = Path("syncer_database.db")
+
     def validate(self) -> None:
         """Validates configuration parameters."""
+        self.reload()
         errors = []
         if not self.api_id or self.api_id == 0:
             errors.append("TELEGRAM_API_ID is required and must be valid.")

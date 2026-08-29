@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -32,14 +32,22 @@ class TaskManager:
         with self.lock:
             return self.worker_thread is not None and self.worker_thread.is_alive()
 
-    def start_task(self, mode: str, topic: str = "", media_type: str = "", force: bool = False) -> bool:
+    def start_task(self, mode: str, topic: str = "", media_type: str = "", force: bool = False) -> tuple:
         with self.lock:
             if self.worker_thread is not None and self.worker_thread.is_alive():
-                return False
+                return False, "Zaten calisan bir islem var. Lutfen once durdurun."
+
+            # Yapılandırmayı tazele ve doğrula
+            try:
+                config.validate()
+            except ValueError as e:
+                err_msg = str(e).replace("\n", " ")
+                self._add_log(f"[ERROR] {err_msg}")
+                return False, err_msg
 
             self.current_mode = mode
             self.logs.clear()
-            self._add_log(f"[INFO] '{mode}' islemi baslatildi.")
+            self._add_log(f"[INFO] '{mode}' islemi baslatiliyor...")
 
             self.worker_thread = threading.Thread(
                 target=self._run_async_worker,
@@ -47,7 +55,7 @@ class TaskManager:
                 daemon=True
             )
             self.worker_thread.start()
-            return True
+            return True, "Baslatildi"
 
     def _run_async_worker(self, mode: str, topic: str, media_type: str, force: bool):
         loop = asyncio.new_event_loop()
@@ -85,7 +93,7 @@ class TaskManager:
         try:
             loop.run_until_complete(self._execute_app(mode, topic, media_type, force))
         except Exception as ex:
-            self._add_log(f"[ERROR] Islem hatasi: {ex}")
+            self._add_log(f"[ERROR] Islem calisma hatasi: {ex}")
         finally:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
@@ -98,10 +106,8 @@ class TaskManager:
                 self.active_app = None
 
     async def _execute_app(self, mode: str, topic: str, media_type: str, force: bool):
-        load_dotenv(override=True)
+        config.reload()
         from main import TelegramSyncerApp
-
-        config.validate()
 
         cli_topics = _parse_topic_list(topic) if topic else None
         cli_media = media_type if (media_type and media_type != "all") else None
@@ -126,7 +132,7 @@ class TaskManager:
         except Exception:
             pass
 
-        self._add_log(f"[DONE] '{mode}' islemi tamamlandi.")
+        self._add_log(f"[DONE] '{mode}' islemi basariyla tamamlandi.")
 
     def stop_task(self) -> bool:
         with self.lock:
@@ -155,7 +161,7 @@ task_manager = TaskManager()
 
 async def fetch_topics_async():
     """Telegram istemcisini baslatip kaynak kanallardaki konulari ceker."""
-    load_dotenv(override=True)
+    config.reload()
     client = TelegramClient(
         config.session_name,
         config.api_id,
@@ -248,6 +254,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .btn-secondary { background: #334155; color: white; }
         .alert { padding: 12px; border-radius: 6px; margin-bottom: 16px; display: none; font-size: 14px; }
         .alert-success { background: rgba(16, 185, 129, 0.2); border: 1px solid var(--success); color: #34d399; }
+        .alert-danger { background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); color: #f87171; }
         
         /* Terminal Log Ekranı */
         .terminal-container { background: var(--terminal-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 16px; }
@@ -301,6 +308,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <span>Islem Kontrolu ve Canli Konsol</span>
                 <span id="app-status-badge" class="status-badge status-idle">DURUM: BEKLEMEDE (IDLE)</span>
             </h2>
+
+            <div id="action-alert" class="alert"></div>
             
             <div class="btn-group" style="margin-bottom: 16px;">
                 <button class="btn-success" id="btn-history" onclick="runAction('history')">Gecmisi Tara ve Aktar</button>
@@ -582,6 +591,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             setTimeout(() => el.style.display = 'none', 4000);
         }
 
+        function showActionAlert(msg, isError = false) {
+            const el = document.getElementById('action-alert');
+            el.innerText = msg;
+            el.className = isError ? 'alert alert-danger' : 'alert alert-success';
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 5000);
+        }
+
         async function checkStatus() {
             try {
                 const res = await fetch('/api/status');
@@ -598,7 +615,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 } else {
                     badge.className = 'status-badge status-idle';
                     badge.innerText = 'DURUM: BEKLEMEDE (IDLE)';
-                    btnStop.disabled = false;
+                    btnStop.disabled = true;
                     actionBtns.forEach(id => document.getElementById(id).disabled = false);
                 }
             } catch(e) {}
@@ -639,18 +656,41 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const force = document.getElementById('action-force').checked;
 
             clearLogs();
-            await fetch('/api/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: mode, topic: topic, media_type: mediaType, force: force })
-            });
+            appendLocalLog(`[UI] '${mode}' islemi baslatma istegi gonderiliyor...`);
+
+            try {
+                const res = await fetch('/api/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: mode, topic: topic, media_type: mediaType, force: force })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    showActionAlert(data.error || 'Islem baslatilamadi.', true);
+                    appendLocalLog(`[ERROR] ${data.error || 'Islem baslatilamadi.'}`);
+                } else {
+                    showActionAlert(`'${mode}' islemi basariyla baslatildi!`);
+                }
+            } catch(err) {
+                showActionAlert('Sunucu ile iletisim hatasi: ' + err, true);
+                appendLocalLog(`[ERROR] Baglanti hatasi: ${err}`);
+            }
 
             checkStatus();
             fetchLogs();
         }
 
         async function stopAction() {
-            await fetch('/api/stop', { method: 'POST' });
+            appendLocalLog('[UI] Durdurma istegi gonderiliyor...');
+            try {
+                const res = await fetch('/api/stop', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showActionAlert('Durdurma sinyali gonderildi.');
+                }
+            } catch(err) {
+                showActionAlert('Durdurma hatasi: ' + err, true);
+            }
             checkStatus();
         }
 
@@ -714,6 +754,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         function selectAndSyncTopic(topicId) {
             document.getElementById('action-topic').value = topicId;
             runAction('history');
+        }
+
+        function appendLocalLog(text) {
+            const term = document.getElementById('terminal');
+            if (term.innerText === 'Konsol ciktisi bekleniyor...') term.innerText = '';
+            const div = document.createElement('div');
+            div.className = text.includes('[ERROR]') ? 'log-error' : 'log-info';
+            const now = new Date().toTimeString().split(' ')[0];
+            div.innerText = `[${now}] ${text}`;
+            term.appendChild(div);
+            term.scrollTop = term.scrollHeight;
         }
 
         function clearLogs() {
@@ -815,11 +866,11 @@ class WebUIHandler(BaseHTTPRequestHandler):
             media_type = data.get("media_type", "all")
             force = data.get("force", False)
 
-            success = task_manager.start_task(mode=mode, topic=topic, media_type=media_type, force=force)
+            success, msg = task_manager.start_task(mode=mode, topic=topic, media_type=media_type, force=force)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"success": success}).encode("utf-8"))
+            self.wfile.write(json.dumps({"success": success, "error": msg if not success else ""}).encode("utf-8"))
 
         elif parsed.path == "/api/stop":
             success = task_manager.stop_task()
@@ -833,6 +884,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(content_len).decode("utf-8")
             new_settings = json.loads(body)
             ProfileManager.apply_settings(new_settings)
+            config.reload()
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -844,6 +896,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(content_len).decode("utf-8")
             profile_data = json.loads(body)
             success = ProfileManager.import_from_dict(profile_data)
+            config.reload()
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -868,6 +921,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
             data = json.loads(body)
             name = data.get("name", "")
             success = ProfileManager.load_named_profile(name)
+            config.reload()
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -877,7 +931,7 @@ class WebUIHandler(BaseHTTPRequestHandler):
 
 def start_web_ui(port: int = 5000):
     server_address = ("", port)
-    httpd = HTTPServer(server_address, WebUIHandler)
+    httpd = ThreadingHTTPServer(server_address, WebUIHandler)
     print(f"\n[INFO] Web Dashboard started on http://localhost:{port} (or http://127.0.0.1:{port})\n")
     try:
         httpd.serve_forever()
