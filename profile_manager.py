@@ -32,17 +32,20 @@ DEFAULT_KEYS = [
 
 class ProfileManager:
     """Ayar profillerini JSON formatinda disa/ice aktaran ve yoneten sinif."""
+    ENV_PATH = Path(".env")
+    PROFILES_DIR = Path("profiles")
 
-    @staticmethod
-    def ensure_profiles_dir():
-        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    @classmethod
+    def ensure_profiles_dir(cls):
+        cls.PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
-    @staticmethod
-    def get_current_settings() -> Dict[str, str]:
+    @classmethod
+    def get_current_settings(cls, env_path: Optional[Path] = None) -> Dict[str, str]:
         """Mevcut .env ayarlarini sozluk olarak okur."""
+        target = env_path or cls.ENV_PATH
         settings = {}
-        if ENV_PATH.exists():
-            with open(ENV_PATH, "r", encoding="utf-8") as f:
+        if target.exists():
+            with open(target, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -50,9 +53,10 @@ class ProfileManager:
                         settings[k.strip()] = v.strip()
         return settings
 
-    @staticmethod
-    def apply_settings(settings: Dict[str, str]) -> None:
+    @classmethod
+    def apply_settings(cls, settings: Dict[str, str], env_path: Optional[Path] = None) -> None:
         """Verilen ayarlar sozlugunu .env dosyasina kaydeder."""
+        target = env_path or cls.ENV_PATH
         content = f"""# ==============================================================================
 # Telegram Media Syncer Configuration File
 # Managed by ProfileManager
@@ -84,13 +88,13 @@ KEEP_ORIGINAL_CAPTION={settings.get('KEEP_ORIGINAL_CAPTION', 'true')}
 CUSTOM_CAPTION_PREFIX={settings.get('CUSTOM_CAPTION_PREFIX', '')}
 CUSTOM_CAPTION_SUFFIX={settings.get('CUSTOM_CAPTION_SUFFIX', '')}
 """
-        with open(ENV_PATH, "w", encoding="utf-8") as f:
+        with open(target, "w", encoding="utf-8") as f:
             f.write(content)
 
-    @staticmethod
-    def export_to_dict(profile_name: str = "default") -> Dict:
+    @classmethod
+    def export_to_dict(cls, profile_name: str = "default", env_path: Optional[Path] = None) -> Dict:
         """Mevcut ayarlari disari aktarilabilir bir profil objesi olarak doner."""
-        settings = ProfileManager.get_current_settings()
+        settings = cls.get_current_settings(env_path=env_path)
         return {
             "profile_version": "1.0",
             "profile_name": profile_name,
@@ -98,55 +102,55 @@ CUSTOM_CAPTION_SUFFIX={settings.get('CUSTOM_CAPTION_SUFFIX', '')}
             "settings": settings,
         }
 
-    @staticmethod
-    def export_to_file(filepath: Path, profile_name: str = "default") -> Path:
+    @classmethod
+    def export_to_file(cls, filepath: Path, profile_name: str = "default", env_path: Optional[Path] = None) -> Path:
         """Mevcut ayarlari bir JSON dosyasina kaydeder."""
-        data = ProfileManager.export_to_dict(profile_name=profile_name)
+        data = cls.export_to_dict(profile_name=profile_name, env_path=env_path)
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         return filepath
 
-    @staticmethod
-    def import_from_dict(data: Dict) -> bool:
+    @classmethod
+    def import_from_dict(cls, data: Dict, env_path: Optional[Path] = None) -> bool:
         """JSON profil objesinden ayarlari ice aktarip .env'ye yazar."""
         if not isinstance(data, dict):
             return False
         settings = data.get("settings", data)
         if not isinstance(settings, dict):
             return False
-        ProfileManager.apply_settings(settings)
+        cls.apply_settings(settings, env_path=env_path)
         return True
 
-    @staticmethod
-    def import_from_file(filepath: Path) -> bool:
+    @classmethod
+    def import_from_file(cls, filepath: Path, env_path: Optional[Path] = None) -> bool:
         """JSON dosyasindan ayarlari ice aktarir."""
         if not filepath.exists():
             return False
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return ProfileManager.import_from_dict(data)
+        return cls.import_from_dict(data, env_path=env_path)
 
-    @staticmethod
-    def list_saved_profiles() -> List[str]:
+    @classmethod
+    def list_saved_profiles(cls) -> List[str]:
         """profiles/ dizinindeki kayitli profil isimlerini listeler."""
-        ProfileManager.ensure_profiles_dir()
+        cls.ensure_profiles_dir()
         profiles = []
-        for p in PROFILES_DIR.glob("*.json"):
+        for p in cls.PROFILES_DIR.glob("*.json"):
             profiles.append(p.stem)
         return sorted(profiles)
 
-    @staticmethod
-    def save_named_profile(name: str) -> Path:
+    @classmethod
+    def save_named_profile(cls, name: str) -> Path:
         """Mevcut ayarlari profiles/<name>.json olarak kaydeder."""
-        ProfileManager.ensure_profiles_dir()
+        cls.ensure_profiles_dir()
         safe_name = "".join(c for c in name if c.isalnum() or c in ("-", "_")).strip()
         if not safe_name:
             safe_name = "profile"
-        target_path = PROFILES_DIR / f"{safe_name}.json"
-        return ProfileManager.export_to_file(target_path, profile_name=safe_name)
+        target_path = cls.PROFILES_DIR / f"{safe_name}.json"
+        return cls.export_to_file(target_path, profile_name=safe_name)
 
-    @staticmethod
-    def load_named_profile(name: str) -> bool:
+    @classmethod
+    def load_named_profile(cls, name: str) -> bool:
         """profiles/<name>.json profilini yukleyip aktif eder."""
-        target_path = PROFILES_DIR / f"{name}.json"
-        return ProfileManager.import_from_file(target_path)
+        target_path = cls.PROFILES_DIR / f"{name}.json"
+        return cls.import_from_file(target_path)

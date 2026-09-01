@@ -58,6 +58,8 @@ class TaskManager:
             return True, "Baslatildi"
 
     def _run_async_worker(self, mode: str, topic: str, media_type: str, force: bool):
+        import re
+        ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -69,8 +71,11 @@ class TaskManager:
             def write(self, msg):
                 if msg:
                     for line in msg.splitlines():
-                        clean = line.strip()
+                        clean = ANSI_ESCAPE.sub('', line).strip()
                         if clean:
+                            # HTTP erişim loglarını canlı konsola yansıtma
+                            if "HTTP/1.1\"" in clean or "GET /api/" in clean:
+                                continue
                             self.add_log_fn(clean)
                 if self.orig_stdout:
                     try:
@@ -93,7 +98,7 @@ class TaskManager:
         try:
             loop.run_until_complete(self._execute_app(mode, topic, media_type, force))
         except Exception as ex:
-            self._add_log(f"[ERROR] Islem calisma hatasi: {ex}")
+            self._add_log(f"[ERROR] Islem hatasi: {ex}")
         finally:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
@@ -151,9 +156,10 @@ class TaskManager:
 
     def get_logs(self, since: int = 0):
         with self.lock:
-            if since < len(self.logs):
-                return self.logs[since:], len(self.logs)
-            return [], len(self.logs)
+            total = len(self.logs)
+            if since < 0 or since > total:
+                return list(self.logs), total
+            return list(self.logs[since:]), total
 
 
 task_manager = TaskManager()
@@ -626,9 +632,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             try {
                 const res = await fetch('/api/logs?since=' + logIndex);
                 const data = await res.json();
+                
+                if (data.next_index !== undefined) {
+                    if (data.next_index < logIndex) {
+                        clearLogs();
+                    }
+                    logIndex = data.next_index;
+                }
+
                 if (data.logs && data.logs.length > 0) {
                     const term = document.getElementById('terminal');
-                    if (logIndex === 0) term.innerText = '';
+                    if (term.innerText === 'Konsol ciktisi bekleniyor...') {
+                        term.innerText = '';
+                    }
                     
                     data.logs.forEach(line => {
                         const div = document.createElement('div');
@@ -645,7 +661,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         term.appendChild(div);
                     });
 
-                    logIndex = data.next_index;
                     if (isAutoScroll) {
                         term.scrollTop = term.scrollHeight;
                     }
@@ -659,7 +674,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const force = document.getElementById('action-force').checked;
 
             clearLogs();
-            appendLocalLog(`[UI] '${mode}' islemi baslatma istegi gonderiliyor...`);
+            appendLocalLog(`[INFO] '${mode}' islemi baslatma istegi gonderiliyor...`);
 
             try {
                 const res = await fetch('/api/run', {
@@ -672,7 +687,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     showActionAlert(data.error || 'Islem baslatilamadi.', true);
                     appendLocalLog(`[ERROR] ${data.error || 'Islem baslatilamadi.'}`);
                 } else {
-                    showActionAlert(`'${mode}' islemi basariyla baslatildi!`);
+                    showActionAlert(`'${mode}' islemi basariyla baslatildi.`);
                 }
             } catch(err) {
                 showActionAlert('Sunucu ile iletisim hatasi: ' + err, true);
@@ -680,7 +695,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
 
             checkStatus();
-            fetchLogs();
         }
 
         async function stopAction() {

@@ -131,13 +131,14 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
             "TARGET_CHANNEL": "-1002222222222",
             "AUTO_CLEANUP": "false",
         }
+        test_env = Path(self.test_dir) / ".env"
         test_file = Path(self.test_dir) / "test_profile.json"
         with open(test_file, "w", encoding="utf-8") as f:
             json.dump({"profile_name": "test", "settings": test_settings}, f)
 
         # Import
-        self.assertTrue(ProfileManager.import_from_file(test_file))
-        current = ProfileManager.get_current_settings()
+        self.assertTrue(ProfileManager.import_from_file(test_file, env_path=test_env))
+        current = ProfileManager.get_current_settings(env_path=test_env)
         self.assertEqual(current.get("TELEGRAM_API_ID"), "98765432")
         self.assertEqual(current.get("MEDIA_TYPE"), "photo")
         self.assertEqual(current.get("TELEGRAM_PHONE"), "+1234567890")

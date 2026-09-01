@@ -42,7 +42,13 @@ class TelegramSyncerApp:
         await self.db.init_db()
         print(Fore.CYAN + f"[INIT] Telegram client initializing...")
         
-        await self.client.start(phone=config.phone if config.phone else None)
+        await self.client.connect()
+        if not await self.client.is_user_authorized():
+            if sys.stdin and sys.stdin.isatty():
+                await self.client.start(phone=config.phone if config.phone else None)
+            else:
+                raise RuntimeError("Telegram oturumu acilmamis! Lutfen once terminalden './run.sh' calistirarak hesabinizla giris yapin.")
+        
         me = await self.client.get_me()
         print(Fore.GREEN + f"[AUTH] Logged in successfully: {me.first_name} (@{me.username or me.id})")
         
@@ -191,25 +197,50 @@ class TelegramSyncerApp:
                         topic_media_count = 0
                         topic_synced_count = 0
 
-                        async for message in self.client.iter_messages(
-                            entity, limit=effective_limit, reply_to=topic_id, reverse=reverse
-                        ):
-                            if not self._is_running:
-                                break
-                            topic_scanned_count += 1
+                        # 1. Deneme: reply_to ile doğrudan konu akışını çek
+                        try:
+                            async for message in self.client.iter_messages(
+                                entity, limit=effective_limit, reply_to=topic_id, reverse=reverse
+                            ):
+                                if not self._is_running:
+                                    break
+                                topic_scanned_count += 1
 
-                            if message.media:
-                                is_media = ChannelHelper.extract_media_info(message, allowed_media_type=self.media_type) is not None
-                                if is_media:
-                                    topic_media_count += 1
-                                    success = await self.process_single_message(
-                                        message=message,
-                                        source_chat_id=chat_info["id"],
-                                        source_title=chat_info["title"],
-                                        force=force,
-                                    )
-                                     if success:
-                                        topic_synced_count += 1
+                                if message.media:
+                                    is_media = ChannelHelper.extract_media_info(message, allowed_media_type=self.media_type) is not None
+                                    if is_media:
+                                        topic_media_count += 1
+                                        success = await self.process_single_message(
+                                            message=message,
+                                            source_chat_id=chat_info["id"],
+                                            source_title=chat_info["title"],
+                                            force=force,
+                                        )
+                                        if success:
+                                            topic_synced_count += 1
+                        except Exception as e:
+                            print(Fore.YELLOW + f"   [WARN] Direct reply scan error for #{topic_id}: {e}")
+
+                        # 2. Deneme: Eğer 0 mesaj bulunduysa veya forum farklı yapıda ise kanal akışından filtrele
+                        if topic_scanned_count == 0 and self._is_running:
+                            print(Fore.YELLOW + f"   [FALLBACK] Scanning channel history for Topic #{topic_id}...")
+                            async for message in self.client.iter_messages(entity, limit=effective_limit, reverse=reverse):
+                                if not self._is_running:
+                                    break
+                                if ChannelHelper.is_message_in_topics(message, [topic_id]):
+                                    topic_scanned_count += 1
+                                    if message.media:
+                                        is_media = ChannelHelper.extract_media_info(message, allowed_media_type=self.media_type) is not None
+                                        if is_media:
+                                            topic_media_count += 1
+                                            success = await self.process_single_message(
+                                                message=message,
+                                                source_chat_id=chat_info["id"],
+                                                source_title=chat_info["title"],
+                                                force=force,
+                                            )
+                                            if success:
+                                                topic_synced_count += 1
 
                         print(Fore.GREEN + f"\n   " + "=" * 50)
                         print(Fore.GREEN + f"   [TAMAMLANDI / DONE] Topic #{topic_id} taramasi bitti!")
