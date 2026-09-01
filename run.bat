@@ -15,6 +15,9 @@ if "%~1"=="" (
     python app_menu.py
 ) else if "%~1"=="web" (
     python web_ui.py
+) else if "%~1"=="update" (
+    echo [INFO] Checking and applying updates from GitHub...
+    python -c "from update_manager import UpdateManager; res = UpdateManager.apply_update(); print(res.get('message', res))"
 ) else (
     python main.py %*
 )

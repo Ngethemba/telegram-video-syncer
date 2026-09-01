@@ -15,6 +15,7 @@ from config import config, _parse_topic_list, _parse_channel_list
 from database import DatabaseManager
 from channel_helper import ChannelHelper
 from profile_manager import ProfileManager
+from update_manager import UpdateManager
 from telethon import TelegramClient
 
 
@@ -460,6 +461,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </form>
         </div>
 
+        <!-- SISTEM VE GUNCELLEMELER -->
+        <div class="card">
+            <h2>
+                <span>Sistem ve Guncellemeler (GitHub)</span>
+                <span id="version-badge" class="badge-id" style="font-size: 12px;">Surum: yukleniyor...</span>
+            </h2>
+            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 14px;">
+                Uygulamanin yeni surumlerini tek bir tiklama ile kontrol edebilir ve terminale komut girmeden guncelleyebilirsiniz.
+            </p>
+
+            <div id="update-alert" class="alert"></div>
+
+            <div style="background: #0f172a; padding: 14px; border-radius: 6px; border: 1px solid var(--border); display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn-primary" id="btn-check-update" onclick="checkForUpdates()">Guncellemeleri Denetle</button>
+                <button type="button" class="btn-success" id="btn-apply-update" style="display: none;" onclick="applyUpdate()">Simdi Otomatik Guncelle</button>
+                <span id="update-status-text" style="font-size: 13px; color: var(--text-muted);"></span>
+            </div>
+
+            <div id="changelog-container" style="display: none; margin-top: 14px; background: #0b1120; border: 1px solid var(--border); border-radius: 6px; padding: 12px;">
+                <div style="font-size: 12px; color: var(--warning); font-weight: bold; margin-bottom: 6px;">YENI SURUM ILE GELECEK DEGISIKLIKLER:</div>
+                <ul id="changelog-list" style="padding-left: 20px; font-size: 13px; color: var(--text);"></ul>
+            </div>
+        </div>
+
         <div class="footer">
             Telegram Media Syncer Dashboard - Linux and Windows
         </div>
@@ -789,10 +814,103 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             logIndex = 0;
         }
 
+        async function checkForUpdates() {
+            const btn = document.getElementById('btn-check-update');
+            const statusText = document.getElementById('update-status-text');
+            const applyBtn = document.getElementById('btn-apply-update');
+            const changelogBox = document.getElementById('changelog-container');
+            const changelogList = document.getElementById('changelog-list');
+            const alertEl = document.getElementById('update-alert');
+
+            btn.disabled = true;
+            statusText.innerText = 'Guncellemeler denetleniyor...';
+            alertEl.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/update/check');
+                const data = await res.json();
+                btn.disabled = false;
+
+                if (!data.success) {
+                    statusText.innerText = '';
+                    showUpdateAlert(data.error || 'Guncelleme kontrolu basarisiz.', true);
+                    return;
+                }
+
+                document.getElementById('version-badge').innerText = `Surum: ${data.current_version}`;
+
+                if (data.has_update) {
+                    statusText.innerText = `${data.commits_behind} yeni guncelleme mevcut!`;
+                    applyBtn.style.display = 'inline-flex';
+                    
+                    changelogList.innerHTML = '';
+                    if (data.changelog) {
+                        data.changelog.forEach(item => {
+                            const li = document.createElement('li');
+                            li.innerText = item;
+                            changelogList.appendChild(li);
+                        });
+                    }
+                    changelogBox.style.display = 'block';
+                    showUpdateAlert(`Yeni surum (${data.latest_version}) bulundu! Asagidaki 'Simdi Otomatik Guncelle' butonuna basarak tek tikla yukleyebilirsiniz.`);
+                } else {
+                    statusText.innerText = 'Uygulamaniz guncel.';
+                    applyBtn.style.display = 'none';
+                    changelogBox.style.display = 'none';
+                    showUpdateAlert('Uygulamaniz en son surumdedir! Herhangi bir guncelleme gerekmiyor.');
+                }
+            } catch(e) {
+                btn.disabled = false;
+                statusText.innerText = '';
+                showUpdateAlert('Baglanti hatasi: ' + e, true);
+            }
+        }
+
+        async function applyUpdate() {
+            const applyBtn = document.getElementById('btn-apply-update');
+            const statusText = document.getElementById('update-status-text');
+
+            if (!confirm('Uygulama en son surume guncellenecek. Devam etmek istiyor musunuz?')) {
+                return;
+            }
+
+            applyBtn.disabled = true;
+            statusText.innerText = 'Guncelleme yukleniyor, lutfen bekleyin...';
+
+            try {
+                const res = await fetch('/api/update/apply', { method: 'POST' });
+                const data = await res.json();
+                applyBtn.disabled = false;
+
+                if (data.success) {
+                    showUpdateAlert(`Uygulama basariyla guncellendi (${data.new_version})! Yeni ozelliklerin gecerli olmasi icin lutfen sayfayi yenileyin.`);
+                    document.getElementById('version-badge').innerText = `Surum: ${data.new_version}`;
+                    applyBtn.style.display = 'none';
+                    document.getElementById('changelog-container').style.display = 'none';
+                    statusText.innerText = 'Guncelleme tamamlandi.';
+                } else {
+                    showUpdateAlert(data.error || 'Guncelleme yuklenemedi.', true);
+                    statusText.innerText = '';
+                }
+            } catch(e) {
+                applyBtn.disabled = false;
+                statusText.innerText = '';
+                showUpdateAlert('Guncelleme sirasinda baglanti hatasi olustu: ' + e, true);
+            }
+        }
+
+        function showUpdateAlert(msg, isError = false) {
+            const el = document.getElementById('update-alert');
+            el.innerText = msg;
+            el.className = isError ? 'alert alert-danger' : 'alert alert-success';
+            el.style.display = 'block';
+        }
+
         loadStats();
         loadSettings();
         loadSavedProfiles();
         checkStatus();
+        checkForUpdates();
 
         setInterval(loadStats, 5000);
         setInterval(checkStatus, 1500);
@@ -866,6 +984,13 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(env_dict).encode("utf-8"))
+
+        elif parsed.path == "/api/update/check":
+            result = UpdateManager.check_for_updates()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode("utf-8"))
 
         else:
             self.send_response(404)
@@ -944,6 +1069,14 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": success}).encode("utf-8"))
+
+        elif parsed.path == "/api/update/apply":
+            result = UpdateManager.apply_update()
+            config.reload()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode("utf-8"))
 
 
 def start_web_ui(port: int = 5000):

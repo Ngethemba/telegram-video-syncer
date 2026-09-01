@@ -6,6 +6,7 @@ from colorama import Fore, Style, init
 
 from setup_wizard import run_setup_wizard, select_language_prompt, ENV_PATH
 from profile_manager import ProfileManager
+from update_manager import UpdateManager
 from i18n import t, get_active_language
 
 init(autoreset=True)
@@ -84,7 +85,6 @@ def import_profile_interactive(lang: str):
 
     fpath = Path(fpath_str)
     if not fpath.exists():
-        # profiles/ icinde ara
         candidate = Path("profiles") / f"{fpath_str}.json"
         if candidate.exists():
             fpath = candidate
@@ -93,6 +93,50 @@ def import_profile_interactive(lang: str):
         print(Fore.GREEN + f"\n{t('profile_imported', lang)}\n")
     else:
         print(Fore.RED + f"\n{t('profile_import_failed', lang)}\n")
+
+
+def check_and_apply_update_interactive(lang: str):
+    clear_screen()
+    print(Fore.CYAN + "==================================================================")
+    print(Fore.CYAN + t('menu_update', lang))
+    print(Fore.CYAN + "==================================================================")
+    print(Fore.YELLOW + t('checking_updates', lang) + "\n")
+    
+    info = UpdateManager.check_for_updates()
+    if not info.get("success"):
+        print(Fore.RED + t('update_failed', lang, error=info.get('error', 'Bilinmeyen hata')))
+        return
+
+    current = info.get("current_version", "unknown")
+    print(Fore.CYAN + f"Mevcut Surum (Current): {current}")
+
+    if not info.get("has_update"):
+        print(Fore.GREEN + f"\n{t('update_not_available', lang)}\n")
+        return
+
+    latest = info.get("latest_version", "unknown")
+    count = info.get("commits_behind", 1)
+    changelog = info.get("changelog", [])
+    
+    print(Fore.YELLOW + f"En Son Surum (Latest): {latest} ({count} yeni guncelleme)")
+    print(Fore.CYAN + "\nBekleyen Yenilikler / Changelog:")
+    for c in changelog[:10]:
+        print(f"  * {c}")
+    if len(changelog) > 10:
+        print(f"  ... ve {len(changelog) - 10} diger guncelleme")
+
+    prompt = "\nGuncellemeyi simdi yuklemek istiyor musunuz? (E/H) [E]: " if lang == "tr" else "\nDo you want to install this update now? (Y/N) [Y]: "
+    ans = input(Fore.YELLOW + prompt).strip().lower()
+    if ans in ("", "e", "evet", "y", "yes"):
+        print(Fore.YELLOW + "\nGuncelleniyor, lutfen bekleyin...")
+        res = UpdateManager.apply_update()
+        if res.get("success"):
+            print(Fore.GREEN + f"\n{t('update_success', lang, version=res.get('new_version', 'latest'))}\n")
+            print(Fore.YELLOW + ("Uygulamanin yeni ozelliklerini kullanmak icin menuden devam edebilirsiniz." if lang == "tr" else "You can continue from the menu to use the updated features."))
+        else:
+            print(Fore.RED + f"\n{t('update_failed', lang, error=res.get('error', 'Bilinmeyen hata'))}\n")
+    else:
+        print(Fore.YELLOW + ("Guncelleme iptal edildi." if lang == "tr" else "Update canceled."))
 
 
 def main_menu():
@@ -113,6 +157,7 @@ def main_menu():
         print(f"  {Fore.GREEN}{t('menu_web', lang)}")
         print(f"  {Fore.CYAN}{t('menu_export_profile', lang)}")
         print(f"  {Fore.CYAN}{t('menu_import_profile', lang)}")
+        print(f"  {Fore.MAGENTA}{t('menu_update', lang)}")
         print(f"  {Fore.YELLOW}{t('menu_lang', lang)}")
         print(f"  {Fore.RED}{t('menu_exit', lang)}")
         print(Fore.CYAN + "==================================================================")
@@ -187,6 +232,10 @@ def main_menu():
             input(Fore.YELLOW + "\n" + t('press_enter', lang))
 
         elif choice == "11":
+            check_and_apply_update_interactive(lang)
+            input(Fore.YELLOW + "\n" + t('press_enter', lang))
+
+        elif choice == "12":
             clear_screen()
             new_lang = select_language_prompt()
             update_env_language(new_lang)

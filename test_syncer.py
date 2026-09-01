@@ -11,6 +11,7 @@ from config import AppConfig, _parse_channel_list, _parse_single_channel, _norma
 from media_helper import MediaHelper
 from channel_helper import ChannelHelper
 from profile_manager import ProfileManager
+from update_manager import UpdateManager
 
 
 class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
@@ -142,6 +143,12 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(current.get("TELEGRAM_API_ID"), "98765432")
         self.assertEqual(current.get("MEDIA_TYPE"), "photo")
         self.assertEqual(current.get("TELEGRAM_PHONE"), "+1234567890")
+
+    def test_update_manager_detection(self):
+        self.assertTrue(UpdateManager.is_git_repo())
+        commit = UpdateManager.get_current_commit()
+        self.assertNotEqual(commit, "unknown")
+        self.assertTrue(len(commit) >= 7)
 
 
 if __name__ == "__main__":

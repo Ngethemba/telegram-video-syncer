@@ -21,6 +21,9 @@ if [ $# -eq 0 ]; then
     python3 app_menu.py
 elif [ "$1" == "web" ] || [ "$1" == "webui" ] || [ "$1" == "gui" ]; then
     python3 web_ui.py
+elif [ "$1" == "update" ]; then
+    echo "[INFO] Checking and applying updates from GitHub..."
+    python3 -c "from update_manager import UpdateManager; res = UpdateManager.apply_update(); print(res.get('message', res))"
 else
     python3 main.py "$@"
 fi

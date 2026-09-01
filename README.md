@@ -1,6 +1,6 @@
 # Telegram Media Syncer (Linux & Windows)
 
-Telegram channel and group media downloader and uploader (sync tool) with restricted content support, topic/forum support, duplicate tracking via SQLite, automatic retries, configuration profile export/import, and cross-platform compatibility (Linux & Windows).
+Telegram channel and group media downloader and uploader (sync tool) with restricted content support, topic/forum support, duplicate tracking via SQLite, automatic retries, configuration profile export/import, one-click update checking & updating, and cross-platform compatibility (Linux & Windows).
 
 ---
 
@@ -18,6 +18,7 @@ Bu uygulama; Telegram kanallarindan veya gruplarindan (icerik indirme/kopyalama 
 
 ## Temel Ozellikler
 - **Video ve Fotograf Destegi:** Hem videolari hem fotograflari (MEDIA_TYPE=all), yalnizca videolari (MEDIA_TYPE=video) veya yalnizca fotograflari (MEDIA_TYPE=photo) senkronize edebilir.
+- **Tek Tikla Guncelleme Denetimi:** Terminale gitmeden Web Panelinden veya terminal menusunden uygulamanin guncel olup olmadigini denetleyebilir, yeni commit'leri gorup tek tikla yukleyebilirsiniz.
 - **Profil Paylasimi (Disa / Ice Aktar):** Ayarlarinizi (API ID, telefon, kanallar vb.) baska bilgisayarlara (Laptop, Masaustu) tek tikla aktarmak icin JSON profil dosyasi olarak disa aktarabilir veya yukleyebilirsiniz.
 - **Kisitli / Yasakli Kanal Destegi:** MTProto istemcisi (Telethon) kullandigindan, korumali (noforwards / protected_content) kanallardaki medyalari stream ederek indirebilir.
 - **Forum ve Topic (Konu) Destegi:** Kaynak kanaldaki belirli bir konuyu (Topic ID) filtreleyebilir veya hedef kanaldaki belirli bir konuya yukleme yapabilir.
@@ -53,6 +54,16 @@ chmod +x install.sh run.sh
    ```cmd
    install.bat
    ```
+
+---
+
+## Otomatik Guncelleme Sistemi (Tek Tikla Guncelleme)
+Artik terminale uzun git komutlari yazmaniza gerek yoktur:
+1. **Web Kontrol Panelinden:** Sayfanin altindaki **"Sistem ve Guncellemeler"** kartindan veya sag ustteki durum rozetinden `Guncellemeleri Denetle` butonuna basin. Yeni surum varsa gelen yenilikleri gorup `Simdi Otomatik Guncelle` butonuna tiklamaniz yeterlidir.
+2. **Terminal Menusunden:** `./run.sh` menuden `[11] Guncellemeleri Denetle ve Yukle` secenegini secin.
+3. **Tek Komutla Hizli Guncelleme:**
+   - **Linux:** `./run.sh update`
+   - **Windows:** `run.bat update`
 
 ---
 
@@ -107,6 +118,7 @@ Tarayicida `http://localhost:5000` adresini acin.
 - **Konulari Listele:** `./run.sh list-topics`
 - **Secmeli Aktar:** `./run.sh interactive`
 - **Istatistikleri Gor:** `./run.sh status`
+- **Guncelle:** `./run.sh update` (veya Windows: `run.bat update`)
 
 ---
 
@@ -130,10 +142,11 @@ Tarayicida `http://localhost:5000` adresini acin.
 # English Documentation
 
 ## Overview
-Telegram Media Syncer is a cross-platform tool for Linux and Windows that downloads videos and photos from Telegram channels/groups (including restricted/protected channels where forwarding or saving is disabled), uploads them to a target channel (with forum topic support), prevents duplicates using an SQLite database, supports profile export/import between devices, and handles network cuts with exponential backoff retries.
+Telegram Media Syncer is a cross-platform tool for Linux and Windows that downloads videos and photos from Telegram channels/groups (including restricted/protected channels where forwarding or saving is disabled), uploads them to a target channel (with forum topic support), prevents duplicates using an SQLite database, supports profile export/import between devices, provides one-click update checking and installation, and handles network cuts with exponential backoff retries.
 
 ## Key Features
 - **Video & Photo Syncing:** Sync both videos and photos (`MEDIA_TYPE=all`), videos only (`MEDIA_TYPE=video`), or photos only (`MEDIA_TYPE=photo`).
+- **One-Click Updates:** Check for updates directly from the Web Dashboard or Terminal Menu and upgrade with a single click without manually running git commands.
 - **Profile Export & Import:** Share or migrate settings between devices (e.g. Laptop and Desktop) with a single JSON profile file.
 - **Restricted Channel Support:** Uses the official MTProto User API (Telethon) to stream and save media even if content protection (`noforwards` / `protected_content`) is enabled.
 - **Forum & Topic Support:** Filter specific source topics by ID, or route uploads to a designated target forum topic.
@@ -169,6 +182,16 @@ chmod +x install.sh run.sh
    ```cmd
    install.bat
    ```
+
+---
+
+## One-Click Updates
+Stay up to date without typing manual git commands:
+1. **In Web Dashboard:** In the "Sistem ve Guncellemeler" card, click `Guncellemeleri Denetle`. If an update is available, review the changelog and click `Simdi Otomatik Guncelle`.
+2. **In Terminal Menu:** Run `./run.sh` -> Choose `[11] Check & Install Updates`.
+3. **One-Line Command:**
+   - **Linux:** `./run.sh update`
+   - **Windows:** `run.bat update`
 
 ---
 
@@ -223,6 +246,7 @@ Open `http://localhost:5000` in your web browser.
 - **List Channel Topics:** `./run.sh list-topics`
 - **Interactive Selector:** `./run.sh interactive`
 - **Show Statistics:** `./run.sh status`
+- **Update Application:** `./run.sh update` (Windows: `run.bat update`)
 
 ---
 
