@@ -177,3 +177,18 @@ class UpdateManager:
                 "success": False,
                 "error": str(e)
             }
+
+    @staticmethod
+    def restart_process():
+        """Mevcut sunucu surecini arka planda guvenle yeniden baslatir."""
+        import time
+        time.sleep(1)
+        if sys.platform == "win32":
+            subprocess.Popen([sys.executable] + sys.argv)
+            os._exit(0)
+        else:
+            try:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception:
+                subprocess.Popen([sys.executable] + sys.argv)
+                os._exit(0)

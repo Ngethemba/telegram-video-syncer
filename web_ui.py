@@ -287,8 +287,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Telegram Medya Aktarici</h1>
-            <span style="font-size: 12px; background: #334155; padding: 4px 10px; border-radius: 20px;">Web Dashboard</span>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <h1>Telegram Medya Aktarici</h1>
+                <span class="badge-id" id="top-version-badge" style="font-size: 12px; background: #1e293b; border: 1px solid var(--border);">Surum: Denetleniyor...</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <button class="btn-primary" id="btn-top-check-update" onclick="checkForUpdates()" style="padding: 5px 12px; font-size: 12px;">Guncellemeleri Denetle</button>
+                <button class="btn-success" id="btn-top-apply-update" onclick="applyUpdate()" style="display: none; padding: 5px 12px; font-size: 12px; font-weight: bold;">Simdi Guncelle</button>
+                <span style="font-size: 12px; background: #334155; padding: 4px 10px; border-radius: 20px;">Web Dashboard</span>
+            </div>
+        </div>
+
+        <!-- UST GUNCELLEME BILDIRIM BANDI -->
+        <div id="top-update-banner" style="display: none; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: 8px; padding: 12px 18px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    <div style="color: #34d399; font-weight: bold; font-size: 14px;" id="banner-title">Yeni bir guncelleme mevcut!</div>
+                    <div style="color: var(--text); font-size: 13px; margin-top: 2px;" id="banner-changelog"></div>
+                </div>
+                <button class="btn-success" onclick="applyUpdate()" style="padding: 8px 18px; font-size: 13px; font-weight: bold; white-space: nowrap;">
+                    Simdi Otomatik Guncelle
+                </button>
+            </div>
         </div>
 
         <div class="grid">
@@ -324,6 +344,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <button class="btn-primary" id="btn-live" onclick="runAction('live')">Canli Izlemeyi Baslat</button>
                 <button class="btn-warning" id="btn-topics" onclick="loadTopicsList()">Konulari (Topic) Listele</button>
                 <button class="btn-secondary" id="btn-retry" onclick="runAction('retry-failed')">Hatalilari Tekrar Dene</button>
+                <button class="btn-secondary" id="btn-action-update" onclick="checkForUpdates()">Guncellemeleri Denetle</button>
                 <button class="btn-danger" id="btn-stop" onclick="stopAction()" disabled>Durdur (Stop)</button>
             </div>
 
@@ -816,94 +837,129 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         async function checkForUpdates() {
             const btn = document.getElementById('btn-check-update');
+            const topBtn = document.getElementById('btn-top-check-update');
+            const topApplyBtn = document.getElementById('btn-top-apply-update');
             const statusText = document.getElementById('update-status-text');
             const applyBtn = document.getElementById('btn-apply-update');
             const changelogBox = document.getElementById('changelog-container');
             const changelogList = document.getElementById('changelog-list');
             const alertEl = document.getElementById('update-alert');
+            const topBanner = document.getElementById('top-update-banner');
+            const topBadge = document.getElementById('top-version-badge');
+            const versionBadge = document.getElementById('version-badge');
 
-            btn.disabled = true;
-            statusText.innerText = 'Guncellemeler denetleniyor...';
-            alertEl.style.display = 'none';
+            if (btn) btn.disabled = true;
+            if (topBtn) topBtn.disabled = true;
+            if (statusText) statusText.innerText = 'Guncellemeler denetleniyor...';
+            if (alertEl) alertEl.style.display = 'none';
 
             try {
                 const res = await fetch('/api/update/check');
                 const data = await res.json();
-                btn.disabled = false;
+                if (btn) btn.disabled = false;
+                if (topBtn) topBtn.disabled = false;
 
                 if (!data.success) {
-                    statusText.innerText = '';
+                    if (statusText) statusText.innerText = '';
                     showUpdateAlert(data.error || 'Guncelleme kontrolu basarisiz.', true);
                     return;
                 }
 
-                document.getElementById('version-badge').innerText = `Surum: ${data.current_version}`;
+                const verText = `Surum: ${data.current_version}`;
+                if (versionBadge) versionBadge.innerText = verText;
+                if (topBadge) topBadge.innerText = verText + (data.has_update ? ' (Guncelleme Var!)' : ' (Guncel)');
 
                 if (data.has_update) {
-                    statusText.innerText = `${data.commits_behind} yeni guncelleme mevcut!`;
-                    applyBtn.style.display = 'inline-flex';
-                    
-                    changelogList.innerHTML = '';
-                    if (data.changelog) {
-                        data.changelog.forEach(item => {
-                            const li = document.createElement('li');
-                            li.innerText = item;
-                            changelogList.appendChild(li);
-                        });
+                    if (statusText) statusText.innerText = `${data.commits_behind} yeni guncelleme mevcut!`;
+                    if (applyBtn) applyBtn.style.display = 'inline-flex';
+                    if (topApplyBtn) topApplyBtn.style.display = 'inline-flex';
+
+                    // Ust Bildirim Bandini Goster
+                    if (topBanner) {
+                        document.getElementById('banner-title').innerText = `Yeni bir surum (${data.latest_version}) yayinlandi! (${data.commits_behind} yeni guncelleme)`;
+                        const preview = data.changelog && data.changelog.length > 0 ? data.changelog.slice(0, 2).join(' • ') : '';
+                        document.getElementById('banner-changelog').innerText = preview;
+                        topBanner.style.display = 'block';
                     }
-                    changelogBox.style.display = 'block';
-                    showUpdateAlert(`Yeni surum (${data.latest_version}) bulundu! Asagidaki 'Simdi Otomatik Guncelle' butonuna basarak tek tikla yukleyebilirsiniz.`);
+
+                    if (changelogList) {
+                        changelogList.innerHTML = '';
+                        if (data.changelog) {
+                            data.changelog.forEach(item => {
+                                const li = document.createElement('li');
+                                li.innerText = item;
+                                changelogList.appendChild(li);
+                            });
+                        }
+                    }
+                    if (changelogBox) changelogBox.style.display = 'block';
+                    showUpdateAlert(`Yeni surum (${data.latest_version}) bulundu! 'Simdi Otomatik Guncelle' butonuna basarak tek tikla yukleyebilirsiniz.`);
                 } else {
-                    statusText.innerText = 'Uygulamaniz guncel.';
-                    applyBtn.style.display = 'none';
-                    changelogBox.style.display = 'none';
+                    if (statusText) statusText.innerText = 'Uygulamaniz guncel.';
+                    if (applyBtn) applyBtn.style.display = 'none';
+                    if (topApplyBtn) topApplyBtn.style.display = 'none';
+                    if (topBanner) topBanner.style.display = 'none';
+                    if (changelogBox) changelogBox.style.display = 'none';
                     showUpdateAlert('Uygulamaniz en son surumdedir! Herhangi bir guncelleme gerekmiyor.');
                 }
             } catch(e) {
-                btn.disabled = false;
-                statusText.innerText = '';
+                if (btn) btn.disabled = false;
+                if (topBtn) topBtn.disabled = false;
+                if (statusText) statusText.innerText = '';
                 showUpdateAlert('Baglanti hatasi: ' + e, true);
             }
         }
 
         async function applyUpdate() {
             const applyBtn = document.getElementById('btn-apply-update');
+            const topApplyBtn = document.getElementById('btn-top-apply-update');
             const statusText = document.getElementById('update-status-text');
 
-            if (!confirm('Uygulama en son surume guncellenecek. Devam etmek istiyor musunuz?')) {
+            if (!confirm('Uygulama en son surume guncellenecek ve sunucu otomatik olarak yeniden baslatilacak. Devam etmek istiyor musunuz?')) {
                 return;
             }
 
-            applyBtn.disabled = true;
-            statusText.innerText = 'Guncelleme yukleniyor, lutfen bekleyin...';
+            if (applyBtn) applyBtn.disabled = true;
+            if (topApplyBtn) topApplyBtn.disabled = true;
+            if (statusText) statusText.innerText = 'Guncelleme yukleniyor ve sunucu yeniden baslatiliyor...';
 
             try {
                 const res = await fetch('/api/update/apply', { method: 'POST' });
                 const data = await res.json();
-                applyBtn.disabled = false;
 
                 if (data.success) {
-                    showUpdateAlert(`Uygulama basariyla guncellendi (${data.new_version})! Yeni ozelliklerin gecerli olmasi icin lutfen sayfayi yenileyin.`);
-                    document.getElementById('version-badge').innerText = `Surum: ${data.new_version}`;
-                    applyBtn.style.display = 'none';
-                    document.getElementById('changelog-container').style.display = 'none';
-                    statusText.innerText = 'Guncelleme tamamlandi.';
+                    showUpdateAlert(`Uygulama basariyla ${data.new_version} surumune guncellendi! Sunucu yeniden baslatiliyor, sayfa 3 saniye icinde otomatik yenilenecek...`);
+                    const topBanner = document.getElementById('top-update-banner');
+                    if (topBanner) {
+                        topBanner.innerHTML = `<div style="color: #34d399; font-weight: bold;">Guncelleme basariyla tamamlandi! Sayfa yenileniyor...</div>`;
+                    }
+                    setTimeout(() => {
+                        window.location.reload(true);
+                    }, 3000);
                 } else {
+                    if (applyBtn) applyBtn.disabled = false;
+                    if (topApplyBtn) topApplyBtn.disabled = false;
                     showUpdateAlert(data.error || 'Guncelleme yuklenemedi.', true);
-                    statusText.innerText = '';
+                    if (statusText) statusText.innerText = '';
                 }
             } catch(e) {
-                applyBtn.disabled = false;
-                statusText.innerText = '';
-                showUpdateAlert('Guncelleme sirasinda baglanti hatasi olustu: ' + e, true);
+                if (applyBtn) applyBtn.disabled = false;
+                if (topApplyBtn) topApplyBtn.disabled = false;
+                if (statusText) statusText.innerText = '';
+                showUpdateAlert('Guncelleme sirasinda sunucu yeniden baslatilmis olabilir. Sayfayi yenileyebilirsiniz: ' + e, false);
+                setTimeout(() => {
+                    window.location.reload(true);
+                }, 4000);
             }
         }
 
         function showUpdateAlert(msg, isError = false) {
             const el = document.getElementById('update-alert');
-            el.innerText = msg;
-            el.className = isError ? 'alert alert-danger' : 'alert alert-success';
-            el.style.display = 'block';
+            if (el) {
+                el.innerText = msg;
+                el.className = isError ? 'alert alert-danger' : 'alert alert-success';
+                el.style.display = 'block';
+            }
         }
 
         loadStats();
@@ -927,6 +983,9 @@ class WebUIHandler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(HTML_TEMPLATE.encode("utf-8"))
 
@@ -1077,6 +1136,8 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(result).encode("utf-8"))
+            if result.get("success"):
+                threading.Thread(target=UpdateManager.restart_process, daemon=True).start()
 
 
 def start_web_ui(port: int = 5000):
