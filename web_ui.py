@@ -132,7 +132,7 @@ class TaskManager:
         except Exception:
             pass
 
-        self._add_log(f"[DONE] '{mode}' islemi basariyla tamamlandi.")
+        self._add_log(f"[TAMAMLANDI / DONE] '{mode}' islemi basariyla bitti!")
 
     def stop_task(self) -> bool:
         with self.lock:
@@ -263,6 +263,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .terminal-logs .log-error { color: #f87171; }
         .terminal-logs .log-warn { color: #fbbf24; }
         .terminal-logs .log-info { color: #60a5fa; }
+        .terminal-logs .log-done { color: #34d399; font-weight: bold; }
         .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
         .status-idle { background: #334155; color: #cbd5e1; }
         .status-running { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
@@ -635,7 +636,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             div.className = 'log-error';
                         } else if (line.includes('[WARN]') || line.includes('[WARNING]') || line.includes('[FLOODWAIT]')) {
                             div.className = 'log-warn';
-                        } else if (line.includes('[INFO]') || line.includes('[DETECTED]') || line.includes('[OK]') || line.includes('[AUTH]') || line.includes('[DONE]')) {
+                        } else if (line.includes('[TAMAMLANDI]') || line.includes('[DONE]') || line.includes('[COMPLETED]')) {
+                            div.className = 'log-done';
+                        } else if (line.includes('[INFO]') || line.includes('[DETECTED]') || line.includes('[OK]') || line.includes('[AUTH]')) {
                             div.className = 'log-info';
                         }
                         div.innerText = line;

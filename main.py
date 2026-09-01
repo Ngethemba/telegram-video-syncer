@@ -208,10 +208,15 @@ class TelegramSyncerApp:
                                         source_title=chat_info["title"],
                                         force=force,
                                     )
-                                    if success:
+                                     if success:
                                         topic_synced_count += 1
 
-                        print(Fore.GREEN + f"   [DONE] Topic #{topic_id}: {topic_scanned_count} msgs scanned, {topic_media_count} media found, {topic_synced_count} synced.")
+                        print(Fore.GREEN + f"\n   " + "=" * 50)
+                        print(Fore.GREEN + f"   [TAMAMLANDI / DONE] Topic #{topic_id} taramasi bitti!")
+                        print(Fore.GREEN + f"   - Taranan Mesaj Sayisi : {topic_scanned_count}")
+                        print(Fore.GREEN + f"   - Tespit Edilen Medya  : {topic_media_count}")
+                        print(Fore.GREEN + f"   - Basariyla Aktarilan  : {topic_synced_count}")
+                        print(Fore.GREEN + f"   " + "=" * 50 + "\n")
                 else:
                     print(Fore.CYAN + f"\n   [SCANNING] Scanning entire channel history...")
                     scanned_count = 0
@@ -236,10 +241,19 @@ class TelegramSyncerApp:
                                 if success:
                                     synced_count += 1
 
-                    print(Fore.GREEN + f"[DONE] {chat_info['title']}: {scanned_count} msgs scanned, {media_count} media found, {synced_count} synced.")
+                    print(Fore.GREEN + f"\n" + "=" * 50)
+                    print(Fore.GREEN + f"[TAMAMLANDI / DONE] {chat_info['title']} kanal taramasi bitti!")
+                    print(Fore.GREEN + f"- Taranan Mesaj Sayisi : {scanned_count}")
+                    print(Fore.GREEN + f"- Tespit Edilen Medya  : {media_count}")
+                    print(Fore.GREEN + f"- Basariyla Aktarilan  : {synced_count}")
+                    print(Fore.GREEN + f"=" * 50 + "\n")
 
             except Exception as e:
                 print(Fore.RED + f"[ERROR] Channel scan failed ({src}): {e}")
+
+        print(Fore.CYAN + "\n" + "=" * 60)
+        print(Fore.GREEN + f"[TAMAMLANDI / COMPLETED] Tum gecmis tarama ve aktarim islemleri basariyla bitti!")
+        print(Fore.CYAN + "=" * 60 + "\n")
 
     async def run_interactive_selection(self):
         print(Fore.CYAN + "\n" + "=" * 60)
