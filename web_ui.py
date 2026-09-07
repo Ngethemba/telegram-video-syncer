@@ -27,6 +27,7 @@ class TaskManager:
         self.current_mode = None
         self.worker_thread = None
         self.logs = []
+        self.log_counter = 0
         self.lock = threading.RLock()
 
     def is_running(self) -> bool:
@@ -151,16 +152,29 @@ class TaskManager:
     def _add_log(self, text: str):
         with self.lock:
             timestamp = time.strftime("%H:%M:%S")
-            self.logs.append(f"[{timestamp}] {text}")
-            if len(self.logs) > 3000:
+            entry = f"[{timestamp}] {text}"
+            self.log_counter += 1
+
+            # Progress bar deduplication / in-place updating
+            is_progress = ("%" in text or "%|" in text) and ("[DOWNLOAD]" in text or "[UPLOAD]" in text or "B/s" in text)
+            if is_progress and self.logs:
+                last_seq, last_entry = self.logs[-1]
+                if ("[DOWNLOAD]" in last_entry or "[UPLOAD]" in last_entry) and ("%" in last_entry or "%|" in last_entry):
+                    self.logs[-1] = (self.log_counter, entry)
+                    return
+
+            self.logs.append((self.log_counter, entry))
+            if len(self.logs) > 1000:
                 self.logs.pop(0)
 
     def get_logs(self, since: int = 0):
         with self.lock:
-            total = len(self.logs)
-            if since < 0 or since > total:
-                return list(self.logs), total
-            return list(self.logs[since:]), total
+            if since <= 0 or since > self.log_counter:
+                items = self.logs[-150:] if len(self.logs) > 150 else self.logs
+                return [text for _, text in items], self.log_counter
+
+            new_items = [text for seq, text in self.logs if seq > since]
+            return new_items, self.log_counter
 
 
 task_manager = TaskManager()
@@ -682,9 +696,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const data = await res.json();
                 
                 if (data.next_index !== undefined) {
-                    if (data.next_index < logIndex) {
-                        clearLogs();
-                    }
                     logIndex = data.next_index;
                 }
 
@@ -694,7 +705,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         term.innerText = '';
                     }
                     
+                    const fragment = document.createDocumentFragment();
                     data.logs.forEach(line => {
+                        const isProgress = (line.includes('[DOWNLOAD]') || line.includes('[UPLOAD]')) && line.includes('%');
+                        const lastChild = fragment.lastElementChild || term.lastElementChild;
+                        if (isProgress && lastChild && (lastChild.innerText.includes('[DOWNLOAD]') || lastChild.innerText.includes('[UPLOAD]')) && lastChild.innerText.includes('%')) {
+                            lastChild.innerText = line;
+                            return;
+                        }
+
                         const div = document.createElement('div');
                         if (line.includes('[ERROR]') || line.includes('[FAILED]')) {
                             div.className = 'log-error';
@@ -706,8 +725,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             div.className = 'log-info';
                         }
                         div.innerText = line;
-                        term.appendChild(div);
+                        fragment.appendChild(div);
                     });
+
+                    if (fragment.childNodes.length > 0) {
+                        term.appendChild(fragment);
+                    }
+
+                    // DOM aşırı büyümesini önle
+                    while (term.children.length > 300) {
+                        term.removeChild(term.firstChild);
+                    }
 
                     if (isAutoScroll) {
                         term.scrollTop = term.scrollHeight;
@@ -833,8 +861,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         function clearLogs() {
-            document.getElementById('terminal').innerText = '';
-            logIndex = 0;
+            const term = document.getElementById('terminal');
+            if (term) term.innerText = '';
         }
 
         async function checkForUpdates() {
