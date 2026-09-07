@@ -64,6 +64,15 @@ class TelegramSyncerApp:
         if self.source_topic_ids:
             print(Fore.YELLOW + f"[FILTER] Active Source Topic Filter: {self.source_topic_ids}")
 
+    async def ensure_connected(self):
+        """Telegram istemcisinin bagli oldugunu kontrol eder, kopmussa yeniden baglanir."""
+        try:
+            if not self.client.is_connected():
+                print(Fore.YELLOW + "   [RECONNECT] Telegram baglantisi yenileniyor...")
+                await self.client.connect()
+        except Exception as e:
+            print(Fore.RED + f"   [RECONNECT UYARI] Baglanti yenileme: {e}")
+
     async def process_single_message(
         self,
         message: types.Message,
@@ -121,11 +130,12 @@ class TelegramSyncerApp:
         if media_type == "video" and self.compress_videos:
             actual_size_mb = download_path.stat().st_size / (1024 * 1024)
             if actual_size_mb >= config.compress_min_size_mb:
-                print(Fore.CYAN + f"   [COMPRESS] Video sikistiriliyor (Orjinal: {actual_size_mb:.1f} MB, CRF: {config.compress_crf})...")
+                preset_used = getattr(config, "compress_preset", "veryfast")
+                print(Fore.CYAN + f"   [COMPRESS] Video sikistiriliyor (Orjinal: {actual_size_mb:.1f} MB, CRF: {config.compress_crf}, Preset: {preset_used})...")
                 compressed_path = await MediaHelper.compress_video(
                     video_path=download_path,
                     crf=config.compress_crf,
-                    preset="faster",
+                    preset=preset_used,
                     max_resolution=config.compress_max_resolution,
                 )
                 if compressed_path and compressed_path.exists():
@@ -134,9 +144,12 @@ class TelegramSyncerApp:
                     print(Fore.GREEN + f"   [COMPRESS] Basarili: {actual_size_mb:.1f} MB -> {new_size_mb:.1f} MB (%{saving_pct:.1f} tasarruf!)")
                     upload_path = compressed_path
                 else:
-                    print(Fore.YELLOW + "   [COMPRESS] Sikistirma avantaji saglanamadi veya dosya zaten kucuk, orjinal gonderiliyor.")
+                    print(Fore.YELLOW + "   [COMPRESS] Sikistirma avantaji saglanamadi veya atlandi, orjinal gonderiliyor.")
+            else:
+                print(Fore.CYAN + f"   [COMPRESS] Video boyutu ({actual_size_mb:.1f} MB) esik degerinin ({config.compress_min_size_mb:.1f} MB) altinda oldugu icin orjinal gonderiliyor.")
 
         try:
+            await self.ensure_connected()
             sent_msg = await self.uploader.upload_media(
                 media_path=upload_path,
                 source_chat_id=source_chat_id,
@@ -147,6 +160,8 @@ class TelegramSyncerApp:
         finally:
             if compressed_path and compressed_path.exists() and compressed_path != download_path:
                 MediaHelper.safe_delete_file(compressed_path)
+            if config.auto_cleanup and download_path and download_path.exists():
+                MediaHelper.safe_delete_file(download_path)
 
         if sent_msg:
             print(Fore.GREEN + f"   [SUCCESS] {t('upload_complete', self.lang, msg_id=sent_msg.id)}")
@@ -241,29 +256,7 @@ class TelegramSyncerApp:
                                     is_media = ChannelHelper.extract_media_info(message, allowed_media_type=self.media_type) is not None
                                     if is_media:
                                         topic_media_count += 1
-                                        success = await self.process_single_message(
-                                            message=message,
-                                            source_chat_id=chat_info["id"],
-                                            source_title=chat_info["title"],
-                                            force=force,
-                                        )
-                                        if success:
-                                            topic_synced_count += 1
-                        except Exception as e:
-                            print(Fore.YELLOW + f"   [WARN] Direct reply scan error for #{topic_id}: {e}")
-
-                        # 2. Deneme: Eğer 0 mesaj bulunduysa veya forum farklı yapıda ise kanal akışından filtrele
-                        if topic_scanned_count == 0 and self._is_running:
-                            print(Fore.YELLOW + f"   [FALLBACK] Scanning channel history for Topic #{topic_id}...")
-                            async for message in self.client.iter_messages(entity, limit=effective_limit, reverse=reverse):
-                                if not self._is_running:
-                                    break
-                                if ChannelHelper.is_message_in_topics(message, [topic_id]):
-                                    topic_scanned_count += 1
-                                    if message.media:
-                                        is_media = ChannelHelper.extract_media_info(message, allowed_media_type=self.media_type) is not None
-                                        if is_media:
-                                            topic_media_count += 1
+                                        try:
                                             success = await self.process_single_message(
                                                 message=message,
                                                 source_chat_id=chat_info["id"],
@@ -272,6 +265,39 @@ class TelegramSyncerApp:
                                             )
                                             if success:
                                                 topic_synced_count += 1
+                                        except Exception as single_err:
+                                            print(Fore.RED + f"   [ERROR] Mesaj #{message.id} aktarilirken hata olustu: {single_err}. Siradaki mesaja geciliyor...")
+                        except Exception as e:
+                            print(Fore.YELLOW + f"   [WARN] Direct reply scan error for #{topic_id}: {e}")
+                            await self.ensure_connected()
+
+                        # 2. Deneme: Eğer 0 mesaj bulunduysa veya forum farklı yapıda ise kanal akışından filtrele
+                        if topic_scanned_count == 0 and self._is_running:
+                            print(Fore.YELLOW + f"   [FALLBACK] Scanning channel history for Topic #{topic_id}...")
+                            try:
+                                async for message in self.client.iter_messages(entity, limit=effective_limit, reverse=reverse):
+                                    if not self._is_running:
+                                        break
+                                    if ChannelHelper.is_message_in_topics(message, [topic_id]):
+                                        topic_scanned_count += 1
+                                        if message.media:
+                                            is_media = ChannelHelper.extract_media_info(message, allowed_media_type=self.media_type) is not None
+                                            if is_media:
+                                                topic_media_count += 1
+                                                try:
+                                                    success = await self.process_single_message(
+                                                        message=message,
+                                                        source_chat_id=chat_info["id"],
+                                                        source_title=chat_info["title"],
+                                                        force=force,
+                                                    )
+                                                    if success:
+                                                        topic_synced_count += 1
+                                                except Exception as single_err:
+                                                    print(Fore.RED + f"   [ERROR] Mesaj #{message.id} aktarilirken hata olustu: {single_err}. Siradaki mesaja geciliyor...")
+                            except Exception as fb_err:
+                                print(Fore.YELLOW + f"   [WARN] Fallback scan error for #{topic_id}: {fb_err}")
+                                await self.ensure_connected()
 
                         print(Fore.GREEN + f"\n   " + "=" * 50)
                         print(Fore.GREEN + f"   [TAMAMLANDI / DONE] Topic #{topic_id} taramasi bitti!")
@@ -294,14 +320,17 @@ class TelegramSyncerApp:
                             is_media = ChannelHelper.extract_media_info(message, allowed_media_type=self.media_type) is not None
                             if is_media:
                                 media_count += 1
-                                success = await self.process_single_message(
-                                    message=message,
-                                    source_chat_id=chat_info["id"],
-                                    source_title=chat_info["title"],
-                                    force=force,
-                                )
-                                if success:
-                                    synced_count += 1
+                                try:
+                                    success = await self.process_single_message(
+                                        message=message,
+                                        source_chat_id=chat_info["id"],
+                                        source_title=chat_info["title"],
+                                        force=force,
+                                    )
+                                    if success:
+                                        synced_count += 1
+                                except Exception as single_err:
+                                    print(Fore.RED + f"   [ERROR] Mesaj #{message.id} aktarilirken hata olustu: {single_err}. Siradaki mesaja geciliyor...")
 
                     print(Fore.GREEN + f"\n" + "=" * 50)
                     print(Fore.GREEN + f"[TAMAMLANDI / DONE] {chat_info['title']} kanal taramasi bitti!")
@@ -312,6 +341,7 @@ class TelegramSyncerApp:
 
             except Exception as e:
                 print(Fore.RED + f"[ERROR] Channel scan failed ({src}): {e}")
+                await self.ensure_connected()
 
         print(Fore.CYAN + "\n" + "=" * 60)
         print(Fore.GREEN + f"[TAMAMLANDI / COMPLETED] Tum gecmis tarama ve aktarim islemleri basariyla bitti!")

@@ -156,6 +156,7 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
             "COMPRESS_CRF": "24",
             "COMPRESS_MIN_SIZE_MB": "15",
             "COMPRESS_MAX_RESOLUTION": "720",
+            "COMPRESS_PRESET": "ultrafast",
         }
         test_env = Path(self.test_dir) / ".env"
         ProfileManager.apply_settings(test_settings, env_path=test_env)
@@ -164,6 +165,7 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(loaded.get("COMPRESS_CRF"), "24")
         self.assertEqual(loaded.get("COMPRESS_MIN_SIZE_MB"), "15")
         self.assertEqual(loaded.get("COMPRESS_MAX_RESOLUTION"), "720")
+        self.assertEqual(loaded.get("COMPRESS_PRESET"), "ultrafast")
 
     async def test_compress_video_edge_cases(self):
         # Non-existent file should safely return None

@@ -113,20 +113,23 @@ class MediaHelper:
         video_path: Path,
         output_path: Optional[Path] = None,
         crf: int = 23,
-        preset: str = "faster",
+        preset: str = "veryfast",
         max_resolution: Optional[int] = 1080,
     ) -> Optional[Path]:
         """
         FFmpeg ile videoyu görsel kalite kaybını minimumda tutarak (near-lossless CRF) sıkıştırır.
         - Codec: H.264 (libx264) - Telegram oynatıcısı ile %100 uyumlu
+        - Container: MP4 (tüm girdi formatları MP4 çıktısına dönüştürülür)
         - Pixel Format: yuv420p (tüm mobil/masaüstü cihazlarda tam destek)
         - Faststart: movflags +faststart (Telegram'da anında oynatma/stream desteği)
         - Audio: aac 128k (şeffaf ses kalitesi)
         - Scale: Çözünürlük max_resolution'dan büyükse orantılı küçültür (örn: 4K -> 1080p).
+        - Preset: veryfast (Sanal makineler ve düşük CPU'lar için optimize edilmiş hız).
         
         Eğer sıkıştırılmış dosya orijinalinden daha büyük olursa None döner ve orijinali korur.
         """
         if not shutil.which("ffmpeg"):
+            print("   [COMPRESS UYARI] Sistemde 'ffmpeg' kurulu degil! Lutfen 'sudo apt install ffmpeg' calistirin. Orjinal video yuklenecek.")
             return None
 
         if not video_path.exists() or video_path.stat().st_size == 0:
@@ -134,11 +137,14 @@ class MediaHelper:
 
         orig_size = video_path.stat().st_size
         if output_path is None:
-            output_path = video_path.parent / f"compressed_{video_path.name}"
+            # Her zaman .mp4 uzantısı kullan ki faststart ve H.264 container hatası vermesin
+            output_path = video_path.parent / f"compressed_{video_path.stem}.mp4"
 
         vf_filters = []
         if max_resolution and max_resolution > 0:
+            # Hem dikey hem yatay videolar için çift sayı piksel garantisiyle sınırla
             vf_filters.append(f"scale='min({max_resolution},iw)':-2")
+            vf_filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2")
         else:
             vf_filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2")
 
@@ -152,6 +158,7 @@ class MediaHelper:
             "-crf", str(crf),
             "-preset", preset,
             "-pix_fmt", "yuv420p",
+            "-threads", "0",
             "-vf", vf_str,
             "-c:a", "aac",
             "-b:a", "128k",
@@ -163,21 +170,37 @@ class MediaHelper:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            await proc.communicate()
+            _, stderr_bytes = await proc.communicate()
+
+            if proc.returncode != 0:
+                err_snippet = stderr_bytes.decode("utf-8", errors="ignore")[-350:].strip()
+                print(f"   [COMPRESS HATA] FFmpeg kod {proc.returncode} ile basarisiz oldu: {err_snippet}")
+                if output_path.exists():
+                    try:
+                        output_path.unlink()
+                    except Exception:
+                        pass
+                return None
 
             if output_path.exists() and output_path.stat().st_size > 0:
                 comp_size = output_path.stat().st_size
                 if comp_size < orig_size:
                     return output_path
                 else:
+                    print(f"   [COMPRESS] Sikistirilmis dosya ({comp_size/(1024*1024):.1f} MB) orijinalden buyuk ciktigi icin orijinal kullaniliyor.")
                     try:
                         output_path.unlink()
                     except Exception:
                         pass
                     return None
-        except Exception:
-            pass
+        except Exception as ex:
+            print(f"   [COMPRESS HATA] Beklenmeyen sikistirma hatasi: {ex}")
+            if output_path and output_path.exists():
+                try:
+                    output_path.unlink()
+                except Exception:
+                    pass
 
         return None

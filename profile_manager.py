@@ -31,6 +31,7 @@ DEFAULT_KEYS = [
     "COMPRESS_CRF",
     "COMPRESS_MIN_SIZE_MB",
     "COMPRESS_MAX_RESOLUTION",
+    "COMPRESS_PRESET",
 ]
 
 
@@ -94,8 +95,9 @@ CUSTOM_CAPTION_SUFFIX={settings.get('CUSTOM_CAPTION_SUFFIX', '')}
 
 COMPRESS_VIDEOS={settings.get('COMPRESS_VIDEOS', 'false')}
 COMPRESS_CRF={settings.get('COMPRESS_CRF', '23')}
-COMPRESS_MIN_SIZE_MB={settings.get('COMPRESS_MIN_SIZE_MB', '20')}
+COMPRESS_MIN_SIZE_MB={settings.get('COMPRESS_MIN_SIZE_MB', '5')}
 COMPRESS_MAX_RESOLUTION={settings.get('COMPRESS_MAX_RESOLUTION', '1080')}
+COMPRESS_PRESET={settings.get('COMPRESS_PRESET', 'veryfast')}
 """
         with open(target, "w", encoding="utf-8") as f:
             f.write(content)

@@ -513,13 +513,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
                 <div class="form-group">
                     <label>Sikistirma Esik Boyutu (MB):</label>
-                    <input type="number" id="compress_min_size_mb" name="COMPRESS_MIN_SIZE_MB" placeholder="20" min="1">
-                    <small style="color: var(--text-muted); font-size: 11px;">Bu boyuttan kucuk videolar hic sikistirilmadan orjinal haliyle yuklenir.</small>
+                    <input type="number" id="compress_min_size_mb" name="COMPRESS_MIN_SIZE_MB" placeholder="5" min="1">
+                    <small style="color: var(--text-muted); font-size: 11px;">Bu boyuttan kucuk videolar hic sikistirilmadan orjinal haliyle yuklenir (Onerilen: 5 MB).</small>
                 </div>
                 <div class="form-group">
                     <label>Sikistirma Kalitesi (CRF - Onerilen: 23):</label>
                     <input type="number" id="compress_crf" name="COMPRESS_CRF" placeholder="23" min="18" max="28">
                     <small style="color: var(--text-muted); font-size: 11px;">18-28 arasi. 23 gozle fark edilmeyen yuksek kalite saglar (kucuk CRF = daha yuksek kalite/boyut).</small>
+                </div>
+                <div class="form-group">
+                    <label>Sikistirma Hizi (Preset - Sanal Makineler Icin 'veryfast'):</label>
+                    <select id="compress_preset" name="COMPRESS_PRESET">
+                        <option value="veryfast">Very Fast (Onerilen - Hizli ve Dusuk CPU)</option>
+                        <option value="ultrafast">Ultra Fast (En Hizli - Minimum Islemci Yuku)</option>
+                        <option value="faster">Faster (Dengeli - Guclu Bilgisayarlar)</option>
+                    </select>
                 </div>
                 <button type="button" class="btn-primary" onclick="saveSettings()">Ayarlari Kaydet</button>
             </form>

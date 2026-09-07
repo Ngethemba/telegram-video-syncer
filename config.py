@@ -163,10 +163,13 @@ class AppConfig:
         default_factory=lambda: int(os.getenv("COMPRESS_CRF", "23") or 23)
     )
     compress_min_size_mb: float = field(
-        default_factory=lambda: float(os.getenv("COMPRESS_MIN_SIZE_MB", "20") or 20)
+        default_factory=lambda: float(os.getenv("COMPRESS_MIN_SIZE_MB", "5") or 5)
     )
     compress_max_resolution: int = field(
         default_factory=lambda: int(os.getenv("COMPRESS_MAX_RESOLUTION", "1080") or 1080)
+    )
+    compress_preset: str = field(
+        default_factory=lambda: os.getenv("COMPRESS_PRESET", "veryfast").lower().strip()
     )
 
     # Database
@@ -219,13 +222,14 @@ class AppConfig:
         except Exception:
             self.compress_crf = 23
         try:
-            self.compress_min_size_mb = float(os.getenv("COMPRESS_MIN_SIZE_MB", "20") or 20)
+            self.compress_min_size_mb = float(os.getenv("COMPRESS_MIN_SIZE_MB", "5") or 5)
         except Exception:
-            self.compress_min_size_mb = 20.0
+            self.compress_min_size_mb = 5.0
         try:
             self.compress_max_resolution = int(os.getenv("COMPRESS_MAX_RESOLUTION", "1080") or 1080)
         except Exception:
             self.compress_max_resolution = 1080
+        self.compress_preset = os.getenv("COMPRESS_PRESET", "veryfast").lower().strip()
         self.db_path = Path("syncer_database.db")
 
     def validate(self) -> None:
