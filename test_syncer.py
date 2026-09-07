@@ -150,6 +150,33 @@ class TestTelegramSyncer(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(commit, "unknown")
         self.assertTrue(len(commit) >= 7)
 
+    async def test_video_compression_config_and_profile(self):
+        test_settings = {
+            "COMPRESS_VIDEOS": "true",
+            "COMPRESS_CRF": "24",
+            "COMPRESS_MIN_SIZE_MB": "15",
+            "COMPRESS_MAX_RESOLUTION": "720",
+        }
+        test_env = Path(self.test_dir) / ".env"
+        ProfileManager.apply_settings(test_settings, env_path=test_env)
+        loaded = ProfileManager.get_current_settings(env_path=test_env)
+        self.assertEqual(loaded.get("COMPRESS_VIDEOS"), "true")
+        self.assertEqual(loaded.get("COMPRESS_CRF"), "24")
+        self.assertEqual(loaded.get("COMPRESS_MIN_SIZE_MB"), "15")
+        self.assertEqual(loaded.get("COMPRESS_MAX_RESOLUTION"), "720")
+
+    async def test_compress_video_edge_cases(self):
+        # Non-existent file should safely return None
+        fake_path = Path(self.test_dir) / "does_not_exist.mp4"
+        res = await MediaHelper.compress_video(fake_path)
+        self.assertIsNone(res)
+
+        # Empty file should safely return None
+        empty_path = Path(self.test_dir) / "empty.mp4"
+        empty_path.write_bytes(b"")
+        res_empty = await MediaHelper.compress_video(empty_path)
+        self.assertIsNone(res_empty)
+
 
 if __name__ == "__main__":
     unittest.main()

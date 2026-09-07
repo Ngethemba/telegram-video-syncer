@@ -34,7 +34,7 @@ class TaskManager:
         with self.lock:
             return self.worker_thread is not None and self.worker_thread.is_alive()
 
-    def start_task(self, mode: str, topic: str = "", media_type: str = "", force: bool = False) -> tuple:
+    def start_task(self, mode: str, topic: str = "", media_type: str = "", force: bool = False, compress: Optional[bool] = None) -> tuple:
         with self.lock:
             if self.worker_thread is not None and self.worker_thread.is_alive():
                 return False, "Zaten calisan bir islem var. Lutfen once durdurun."
@@ -49,17 +49,18 @@ class TaskManager:
 
             self.current_mode = mode
             self.logs.clear()
-            self._add_log(f"[INFO] '{mode}' islemi baslatiliyor...")
+            compress_info = " [Sikistirma Aktif]" if (compress or (compress is None and config.compress_videos)) else ""
+            self._add_log(f"[INFO] '{mode}' islemi baslatiliyor...{compress_info}")
 
             self.worker_thread = threading.Thread(
                 target=self._run_async_worker,
-                args=(mode, topic, media_type, force),
+                args=(mode, topic, media_type, force, compress),
                 daemon=True
             )
             self.worker_thread.start()
             return True, "Baslatildi"
 
-    def _run_async_worker(self, mode: str, topic: str, media_type: str, force: bool):
+    def _run_async_worker(self, mode: str, topic: str, media_type: str, force: bool, compress: Optional[bool] = None):
         import re
         ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
         loop = asyncio.new_event_loop()
@@ -98,7 +99,7 @@ class TaskManager:
         sys.stderr = WebLogger(self._add_log, old_stderr)
 
         try:
-            loop.run_until_complete(self._execute_app(mode, topic, media_type, force))
+            loop.run_until_complete(self._execute_app(mode, topic, media_type, force, compress))
         except Exception as ex:
             self._add_log(f"[ERROR] Islem hatasi: {ex}")
         finally:
@@ -112,14 +113,18 @@ class TaskManager:
                 self.current_mode = None
                 self.active_app = None
 
-    async def _execute_app(self, mode: str, topic: str, media_type: str, force: bool):
+    async def _execute_app(self, mode: str, topic: str, media_type: str, force: bool, compress: Optional[bool] = None):
         config.reload()
         from main import TelegramSyncerApp
 
         cli_topics = _parse_topic_list(topic) if topic else None
         cli_media = media_type if (media_type and media_type != "all") else None
 
-        app = TelegramSyncerApp(override_topics=cli_topics, override_media_type=cli_media)
+        app = TelegramSyncerApp(
+            override_topics=cli_topics,
+            override_media_type=cli_media,
+            override_compress=compress,
+        )
         with self.lock:
             self.active_app = app
 
@@ -382,6 +387,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <input type="checkbox" id="action-force" style="width: auto;">
                     <label for="action-force" style="margin: 0; font-size: 12px; cursor: pointer;">Mukerrer Kontrolunu Atla (--force)</label>
                 </div>
+                <div style="display: flex; align-items: center; gap: 6px; margin-top: 18px;">
+                    <input type="checkbox" id="action-compress" style="width: auto;">
+                    <label for="action-compress" style="margin: 0; font-size: 12px; cursor: pointer;" title="Buyuk videolari yuklemeden once kayipsiza yakin sikistirarak veri ve kota tasarrufu saglar">Videolari Sikistir (Veri Tasarrufu)</label>
+                </div>
             </div>
 
             <!-- TOPIC LISTELEME ALANI -->
@@ -493,6 +502,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <option value="true">Evet (Yer Tasarrufu Saglar)</option>
                         <option value="false">Hayir (Downloads klasorunde sakla)</option>
                     </select>
+                </div>
+                <div class="form-group">
+                    <label>Videolari Akilli Sikistir (Veri ve Kota Tasarrufu):</label>
+                    <select id="compress_videos" name="COMPRESS_VIDEOS">
+                        <option value="false">Hayir (Videolari orjinal boyutunda yukle)</option>
+                        <option value="true">Evet (Kayipsiza yakin H.264 sikistirma ile yukle)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Sikistirma Esik Boyutu (MB):</label>
+                    <input type="number" id="compress_min_size_mb" name="COMPRESS_MIN_SIZE_MB" placeholder="20" min="1">
+                    <small style="color: var(--text-muted); font-size: 11px;">Bu boyuttan kucuk videolar hic sikistirilmadan orjinal haliyle yuklenir.</small>
+                </div>
+                <div class="form-group">
+                    <label>Sikistirma Kalitesi (CRF - Onerilen: 23):</label>
+                    <input type="number" id="compress_crf" name="COMPRESS_CRF" placeholder="23" min="18" max="28">
+                    <small style="color: var(--text-muted); font-size: 11px;">18-28 arasi. 23 gozle fark edilmeyen yuksek kalite saglar (kucuk CRF = daha yuksek kalite/boyut).</small>
                 </div>
                 <button type="button" class="btn-primary" onclick="saveSettings()">Ayarlari Kaydet</button>
             </form>
@@ -748,6 +774,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const topic = document.getElementById('action-topic').value.trim();
             const mediaType = document.getElementById('action-type').value;
             const force = document.getElementById('action-force').checked;
+            const compress = document.getElementById('action-compress') ? document.getElementById('action-compress').checked : false;
 
             clearLogs();
             appendLocalLog(`[INFO] '${mode}' islemi baslatma istegi gonderiliyor...`);
@@ -756,7 +783,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const res = await fetch('/api/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: mode, topic: topic, media_type: mediaType, force: force })
+                    body: JSON.stringify({ mode: mode, topic: topic, media_type: mediaType, force: force, compress: compress })
                 });
                 const data = await res.json();
                 if (!data.success) {
@@ -1096,8 +1123,15 @@ class WebUIHandler(BaseHTTPRequestHandler):
             topic = data.get("topic", "")
             media_type = data.get("media_type", "all")
             force = data.get("force", False)
+            compress = data.get("compress", None)
 
-            success, msg = task_manager.start_task(mode=mode, topic=topic, media_type=media_type, force=force)
+            success, msg = task_manager.start_task(
+                mode=mode,
+                topic=topic,
+                media_type=media_type,
+                force=force,
+                compress=compress,
+            )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

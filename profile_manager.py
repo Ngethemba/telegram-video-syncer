@@ -27,6 +27,10 @@ DEFAULT_KEYS = [
     "KEEP_ORIGINAL_CAPTION",
     "CUSTOM_CAPTION_PREFIX",
     "CUSTOM_CAPTION_SUFFIX",
+    "COMPRESS_VIDEOS",
+    "COMPRESS_CRF",
+    "COMPRESS_MIN_SIZE_MB",
+    "COMPRESS_MAX_RESOLUTION",
 ]
 
 
@@ -87,6 +91,11 @@ DELAY_BETWEEN_UPLOADS={settings.get('DELAY_BETWEEN_UPLOADS', '3')}
 KEEP_ORIGINAL_CAPTION={settings.get('KEEP_ORIGINAL_CAPTION', 'true')}
 CUSTOM_CAPTION_PREFIX={settings.get('CUSTOM_CAPTION_PREFIX', '')}
 CUSTOM_CAPTION_SUFFIX={settings.get('CUSTOM_CAPTION_SUFFIX', '')}
+
+COMPRESS_VIDEOS={settings.get('COMPRESS_VIDEOS', 'false')}
+COMPRESS_CRF={settings.get('COMPRESS_CRF', '23')}
+COMPRESS_MIN_SIZE_MB={settings.get('COMPRESS_MIN_SIZE_MB', '20')}
+COMPRESS_MAX_RESOLUTION={settings.get('COMPRESS_MAX_RESOLUTION', '1080')}
 """
         with open(target, "w", encoding="utf-8") as f:
             f.write(content)

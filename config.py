@@ -155,6 +155,20 @@ class AppConfig:
         default_factory=lambda: os.getenv("CUSTOM_CAPTION_SUFFIX", "")
     )
 
+    # Video Compression Settings
+    compress_videos: bool = field(
+        default_factory=lambda: _str_to_bool(os.getenv("COMPRESS_VIDEOS", "false"))
+    )
+    compress_crf: int = field(
+        default_factory=lambda: int(os.getenv("COMPRESS_CRF", "23") or 23)
+    )
+    compress_min_size_mb: float = field(
+        default_factory=lambda: float(os.getenv("COMPRESS_MIN_SIZE_MB", "20") or 20)
+    )
+    compress_max_resolution: int = field(
+        default_factory=lambda: int(os.getenv("COMPRESS_MAX_RESOLUTION", "1080") or 1080)
+    )
+
     # Database
     db_path: Path = field(default_factory=lambda: Path("syncer_database.db"))
 
@@ -199,6 +213,19 @@ class AppConfig:
         self.keep_original_caption = _str_to_bool(os.getenv("KEEP_ORIGINAL_CAPTION", "true"))
         self.custom_caption_prefix = os.getenv("CUSTOM_CAPTION_PREFIX", "")
         self.custom_caption_suffix = os.getenv("CUSTOM_CAPTION_SUFFIX", "")
+        self.compress_videos = _str_to_bool(os.getenv("COMPRESS_VIDEOS", "false"))
+        try:
+            self.compress_crf = int(os.getenv("COMPRESS_CRF", "23") or 23)
+        except Exception:
+            self.compress_crf = 23
+        try:
+            self.compress_min_size_mb = float(os.getenv("COMPRESS_MIN_SIZE_MB", "20") or 20)
+        except Exception:
+            self.compress_min_size_mb = 20.0
+        try:
+            self.compress_max_resolution = int(os.getenv("COMPRESS_MAX_RESOLUTION", "1080") or 1080)
+        except Exception:
+            self.compress_max_resolution = 1080
         self.db_path = Path("syncer_database.db")
 
     def validate(self) -> None:

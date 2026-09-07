@@ -20,7 +20,12 @@ init(autoreset=True)
 
 
 class TelegramSyncerApp:
-    def __init__(self, override_topics: Optional[List[int]] = None, override_media_type: Optional[str] = None):
+    def __init__(
+        self,
+        override_topics: Optional[List[int]] = None,
+        override_media_type: Optional[str] = None,
+        override_compress: Optional[bool] = None,
+    ):
         self.db = DatabaseManager(config.db_path)
         self.client = TelegramClient(
             config.session_name,
@@ -35,6 +40,7 @@ class TelegramSyncerApp:
         self.uploader = VideoUploader(self.client, self.db)
         self.source_topic_ids = override_topics if override_topics is not None else config.source_topic_ids
         self.media_type = (override_media_type or config.media_type).lower().strip()
+        self.compress_videos = override_compress if override_compress is not None else config.compress_videos
         self._is_running = True
         self.lang = get_active_language()
 
@@ -109,13 +115,38 @@ class TelegramSyncerApp:
 
         print(Fore.GREEN + f"   [OK] {t('download_complete', self.lang, name=download_path.name)}")
 
-        sent_msg = await self.uploader.upload_media(
-            media_path=download_path,
-            source_chat_id=source_chat_id,
-            source_msg_id=message.id,
-            media_type=media_type,
-            original_caption=media_info["caption"],
-        )
+        # --- OPSIYONEL AKILLI VIDEO SIKISTIRMA ---
+        upload_path = download_path
+        compressed_path = None
+        if media_type == "video" and self.compress_videos:
+            actual_size_mb = download_path.stat().st_size / (1024 * 1024)
+            if actual_size_mb >= config.compress_min_size_mb:
+                print(Fore.CYAN + f"   [COMPRESS] Video sikistiriliyor (Orjinal: {actual_size_mb:.1f} MB, CRF: {config.compress_crf})...")
+                compressed_path = await MediaHelper.compress_video(
+                    video_path=download_path,
+                    crf=config.compress_crf,
+                    preset="faster",
+                    max_resolution=config.compress_max_resolution,
+                )
+                if compressed_path and compressed_path.exists():
+                    new_size_mb = compressed_path.stat().st_size / (1024 * 1024)
+                    saving_pct = ((actual_size_mb - new_size_mb) / actual_size_mb) * 100
+                    print(Fore.GREEN + f"   [COMPRESS] Basarili: {actual_size_mb:.1f} MB -> {new_size_mb:.1f} MB (%{saving_pct:.1f} tasarruf!)")
+                    upload_path = compressed_path
+                else:
+                    print(Fore.YELLOW + "   [COMPRESS] Sikistirma avantaji saglanamadi veya dosya zaten kucuk, orjinal gonderiliyor.")
+
+        try:
+            sent_msg = await self.uploader.upload_media(
+                media_path=upload_path,
+                source_chat_id=source_chat_id,
+                source_msg_id=message.id,
+                media_type=media_type,
+                original_caption=media_info["caption"],
+            )
+        finally:
+            if compressed_path and compressed_path.exists() and compressed_path != download_path:
+                MediaHelper.safe_delete_file(compressed_path)
 
         if sent_msg:
             print(Fore.GREEN + f"   [SUCCESS] {t('upload_complete', self.lang, msg_id=sent_msg.id)}")
@@ -497,6 +528,12 @@ async def main():
         default=False,
         help="Re-download and re-upload even if already completed",
     )
+    parser.add_argument(
+        "--compress",
+        action="store_true",
+        default=None,
+        help="Compress large videos before uploading to save data",
+    )
 
     args = parser.parse_args()
 
@@ -510,8 +547,13 @@ async def main():
 
     cli_topics = _parse_topic_list(args.topic) if args.topic else None
     cli_media_type = args.type if args.type else None
+    cli_compress = args.compress
 
-    app = TelegramSyncerApp(override_topics=cli_topics, override_media_type=cli_media_type)
+    app = TelegramSyncerApp(
+        override_topics=cli_topics,
+        override_media_type=cli_media_type,
+        override_compress=cli_compress,
+    )
 
     loop = asyncio.get_running_loop()
 
