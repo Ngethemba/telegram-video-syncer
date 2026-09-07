@@ -38,13 +38,13 @@ class TelegramSyncerApp:
         self._is_running = True
         self.lang = get_active_language()
 
-    async def initialize(self):
+    async def initialize(self, interactive: bool = True):
         await self.db.init_db()
         print(Fore.CYAN + f"[INIT] Telegram client initializing...")
         
         await self.client.connect()
         if not await self.client.is_user_authorized():
-            if sys.stdin and sys.stdin.isatty():
+            if interactive and sys.stdin and sys.stdin.isatty():
                 await self.client.start(phone=config.phone if config.phone else None)
             else:
                 raise RuntimeError("Telegram oturumu acilmamis! Lutfen once terminalden './run.sh' calistirarak hesabinizla giris yapin.")

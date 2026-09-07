@@ -27,7 +27,7 @@ class TaskManager:
         self.current_mode = None
         self.worker_thread = None
         self.logs = []
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def is_running(self) -> bool:
         with self.lock:
@@ -122,7 +122,7 @@ class TaskManager:
         with self.lock:
             self.active_app = app
 
-        await app.initialize()
+        await app.initialize(interactive=False)
 
         if mode == "live":
             await app.run_live_monitor()
@@ -175,7 +175,9 @@ async def fetch_topics_async():
         config.api_hash,
     )
     try:
-        await client.start(phone=config.phone if config.phone else None)
+        await client.connect()
+        if not await client.is_user_authorized():
+            return {"success": False, "error": "Telegram oturumu acilmamis! Lutfen once terminalden './run.sh' ile giris yapin."}
         helper = ChannelHelper(client)
         results = []
 
