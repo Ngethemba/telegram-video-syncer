@@ -53,7 +53,8 @@ class TelegramSyncerApp:
             if interactive and sys.stdin and sys.stdin.isatty():
                 await self.client.start(phone=config.phone if config.phone else None)
             else:
-                raise RuntimeError("Telegram oturumu acilmamis! Lutfen once terminalden './run.sh' calistirarak hesabinizla giris yapin.")
+                runner_cmd = "run.bat" if os.name == "nt" else "./run.sh"
+                raise RuntimeError(f"Telegram oturumu acilmamis! Lutfen once terminalden '{runner_cmd}' calistirarak telefonunuza gelen kod ile giris yapin.")
         
         me = await self.client.get_me()
         print(Fore.GREEN + f"[AUTH] Logged in successfully: {me.first_name} (@{me.username or me.id})")
