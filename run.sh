@@ -22,8 +22,14 @@ if [ $# -eq 0 ]; then
 elif [ "$1" == "web" ] || [ "$1" == "webui" ] || [ "$1" == "gui" ]; then
     python3 web_ui.py
 elif [ "$1" == "update" ]; then
-    echo "[INFO] Checking and applying updates from GitHub..."
-    python3 -c "from update_manager import UpdateManager; res = UpdateManager.apply_update(); print(res.get('message', res))"
+    if [ -f "update.sh" ]; then
+        chmod +x update.sh 2>/dev/null || true
+        ./update.sh
+    else
+        echo "[INFO] Updating from GitHub..."
+        git fetch origin main && git reset --hard origin/main
+        chmod +x run.sh install.sh 2>/dev/null || true
+    fi
 else
     python3 main.py "$@"
 fi

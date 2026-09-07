@@ -221,7 +221,11 @@ def main_menu():
 
         elif choice == "8":
             clear_screen()
-            subprocess.run([sys.executable, "web_ui.py"])
+            try:
+                subprocess.run([sys.executable, "web_ui.py"])
+            except KeyboardInterrupt:
+                print(Fore.YELLOW + "\n[BILGI] Web paneli durduruldu.")
+                time.sleep(1)
 
         elif choice == "9":
             export_profile_interactive(lang)
@@ -246,6 +250,10 @@ def main_menu():
 
 
 if __name__ == "__main__":
-    if not is_configured():
-        run_setup_wizard()
-    main_menu()
+    import time
+    try:
+        if not is_configured():
+            run_setup_wizard()
+        main_menu()
+    except KeyboardInterrupt:
+        print(Fore.GREEN + f"\n\n{t('goodbye', get_active_language())}\n")
