@@ -4,8 +4,12 @@ from pathlib import Path
 import re
 import shutil
 from typing import Optional, Tuple, Union
+import hachoir.core.config as hachoir_config
 from hachoir.metadata import extractMetadata
 from hachoir.parser import createParser
+
+# Hachoir kütüphanesinin konsola yazdırdığı zararsız [warn] [Autofix] atom uyarılarını sessize al
+hachoir_config.quiet = True
 
 
 class MediaHelper:
