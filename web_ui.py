@@ -8,6 +8,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
@@ -1087,8 +1088,18 @@ class WebUIHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"profiles": profiles}).encode("utf-8"))
 
         elif parsed.path == "/api/stats":
-            db = DatabaseManager(config.db_path)
-            stats = asyncio.run(db.get_stats())
+            try:
+                db = DatabaseManager(config.db_path)
+                stats = asyncio.run(db.get_stats())
+            except Exception:
+                stats = {
+                    "total": 0,
+                    "completed": 0,
+                    "failed": 0,
+                    "pending": 0,
+                    "downloaded": 0,
+                    "total_bytes_transferred": 0,
+                }
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1204,15 +1215,55 @@ class WebUIHandler(BaseHTTPRequestHandler):
                 threading.Thread(target=UpdateManager.restart_process, daemon=True).start()
 
 
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def start_web_ui(port: int = 5000):
-    server_address = ("", port)
-    httpd = ThreadingHTTPServer(server_address, WebUIHandler)
-    print(f"\n[INFO] Web Dashboard started on http://localhost:{port} (or http://127.0.0.1:{port})\n")
+    # Veritabanını otomatik hazırla (tablolar yoksa oluşturulur)
+    try:
+        db = DatabaseManager(config.db_path)
+        asyncio.run(db.init_db())
+    except Exception:
+        pass
+
+    if len(sys.argv) > 1 and sys.argv[1].isdigit():
+        port = int(sys.argv[1])
+    elif "PORT" in os.environ:
+        try:
+            port = int(os.environ["PORT"])
+        except ValueError:
+            pass
+
+    server_address = ("0.0.0.0", port)
+    try:
+        httpd = ReusableThreadingHTTPServer(server_address, WebUIHandler)
+    except OSError as e:
+        print(f"\n[UYARI] Port {port} su anda mesgul veya kullanilamiyor: {e}", flush=True)
+        fallback_port = port + 1
+        print(f"[BILGI] Alternatif port deneniyor: {fallback_port}...", flush=True)
+        try:
+            httpd = ReusableThreadingHTTPServer(("0.0.0.0", fallback_port), WebUIHandler)
+            port = fallback_port
+        except OSError:
+            print(f"[HATA] Port {fallback_port} da mesgul. Lutfen arkada calisan eski web panelini kapatin.\n", flush=True)
+            return
+
+    print("\n=======================================================", flush=True)
+    print(" [BILGI] Telegram Syncer Web Paneli Basariyla Baslatildi!", flush=True)
+    print(f" [ADRES] Tarayicinizdan acin: http://localhost:{port}", flush=True)
+    print(f" [ALTERNATIF]             : http://127.0.0.1:{port}", flush=True)
+    print("=======================================================\n", flush=True)
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n[INFO] Web server stopped.")
+        print("\n[BILGI] Web sunucusu durduruldu.", flush=True)
+    finally:
+        httpd.server_close()
 
 
 if __name__ == "__main__":
     start_web_ui()
+

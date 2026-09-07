@@ -217,32 +217,36 @@ class DatabaseManager:
 
     async def get_stats(self) -> Dict[str, Union[int, float]]:
         """Veritabanı özet istatistiklerini hesaplar."""
-        async with aiosqlite.connect(self.db_path) as db:
-            stats = {
-                "total": 0,
-                "completed": 0,
-                "failed": 0,
-                "pending": 0,
-                "downloaded": 0,
-                "total_bytes_transferred": 0,
-            }
-            async with db.execute(
-                """
-                SELECT status, COUNT(*), SUM(file_size) 
-                FROM processed_videos 
-                GROUP BY status
-                """
-            ) as cursor:
-                async for row in cursor:
-                    status_name = row[0].lower()
-                    count = row[1]
-                    size_sum = row[2] or 0
+        stats = {
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "pending": 0,
+            "downloaded": 0,
+            "total_bytes_transferred": 0,
+        }
+        try:
+            await self.init_db()
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute(
+                    """
+                    SELECT status, COUNT(*), SUM(file_size) 
+                    FROM processed_videos 
+                    GROUP BY status
+                    """
+                ) as cursor:
+                    async for row in cursor:
+                        status_name = row[0].lower()
+                        count = row[1]
+                        size_sum = row[2] or 0
 
-                    stats["total"] += count
-                    if status_name in stats:
-                        stats[status_name] = count
+                        stats["total"] += count
+                        if status_name in stats:
+                            stats[status_name] = count
 
-                    if status_name == "completed":
-                        stats["total_bytes_transferred"] += size_sum
+                        if status_name == "completed":
+                            stats["total_bytes_transferred"] += size_sum
+        except Exception:
+            pass
 
-            return stats
+        return stats

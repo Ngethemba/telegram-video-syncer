@@ -20,7 +20,8 @@ fi
 if [ $# -eq 0 ]; then
     python3 app_menu.py
 elif [ "$1" == "web" ] || [ "$1" == "webui" ] || [ "$1" == "gui" ]; then
-    python3 web_ui.py
+    shift
+    python3 web_ui.py "$@"
 elif [ "$1" == "update" ]; then
     if [ -f "update.sh" ]; then
         chmod +x update.sh 2>/dev/null || true
