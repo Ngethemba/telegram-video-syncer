@@ -12,6 +12,7 @@ from telethon.tl import types
 from config import config, _normalize_topic_id, _parse_topic_list
 from database import DatabaseManager
 from channel_helper import ChannelHelper
+from media_helper import MediaHelper
 from downloader import VideoDownloader
 from uploader import VideoUploader
 from i18n import t, get_active_language
